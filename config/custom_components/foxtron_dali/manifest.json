@@ -1,10 +1,10 @@
 {
     "domain": "foxtron_dali",
     "name": "Foxtron DALI Gateway",
-    "version": "1.0.0",
+    "version": "0.0.1",
     "config_flow": true,
-    "documentation": "https://github.com/your-username/ha-foxtron-dali",
-    "issue_tracker": "https://github.com/your-username/ha-foxtron-dali/issues",
+    "documentation": "https://github.com/docek/ha-foxtron-dali",
+    "issue_tracker": "https://github.com/docek/ha-foxtron-dali/issues",
     "codeowners": [],
     "iot_class": "local_push",
     "dependencies": [],

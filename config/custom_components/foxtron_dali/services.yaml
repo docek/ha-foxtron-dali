@@ -1,0 +1,22 @@
+scan_for_lights:
+  description: Scans the DALI bus for new lights and adds them to Home Assistant.
+  fields: {}
+
+broadcast_on:
+  description: Turns on all lights on the DALI bus to their maximum level.
+  fields: {}
+
+broadcast_off:
+  description: Turns off all lights on the DALI bus.
+  fields: {}
+
+set_fade_time:
+  description: Sets the DALI fade time for all devices on the bus.
+  fields:
+    fade_time:
+      description: A DALI fade code (0-15).
+      example: 10
+      selector:
+        number:
+          min: 0
+          max: 15

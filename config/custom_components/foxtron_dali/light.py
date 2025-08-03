@@ -3,7 +3,9 @@ from typing import Any, Optional
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -22,23 +24,41 @@ async def async_setup_entry(
 
     # Discover lights on the DALI bus
     discovered_addresses = await driver.scan_for_devices()
-    lights = [DaliLight(driver, addr) for addr in discovered_addresses]
+    lights = [DaliLight(driver, addr, entry) for addr in discovered_addresses]
     async_add_entities(lights)
 
 
 class DaliLight(LightEntity):
     """Representation of a DALI light."""
 
-    def __init__(self, driver: FoxtronDaliDriver, address: int) -> None:
+    def __init__(self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry) -> None:
         """Initialize the light."""
         self._driver = driver
         self._address = address
-        self._attr_name = f"DALI Light {address}"
-        self._attr_unique_id = f"dali_light_{address}"
+        self._entry = entry
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._brightness: Optional[int] = None
         self._is_on = False
+
+    @property
+    def name(self) -> str:
+        """Return the name of the light."""
+        return f"DALI Light {self._address}"
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique ID for the light."""
+        return f"{self._entry.entry_id}_{self._address}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information about this device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=f"DALI Bus ({self._entry.data[CONF_HOST]}:{self._entry.data[CONF_PORT]})",
+            manufacturer="Foxtron",
+        )
 
     @property
     def is_on(self) -> bool:
