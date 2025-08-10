@@ -311,12 +311,14 @@ class FoxtronConnection:
         port: int,
         on_message_callback: Callable[[bytes], Awaitable[None]],
         on_disconnect_callback: Callable[[], Awaitable[None]],
+        keep_alive_interval: int = KEEP_ALIVE_INTERVAL,
     ):
         """Initializes the FoxtronConnection."""
         self._host = host
         self._port = port
         self._on_message_callback = on_message_callback
         self._on_disconnect_callback = on_disconnect_callback
+        self._keep_alive_interval = keep_alive_interval
         # Pre-build the keep-alive frame (a query for firmware version)
         keep_alive_payload = bytes([MSG_TYPE_QUERY_CONFIG_ITEM, 0x02])
         self._keep_alive_frame = FoxtronMessage.build_frame(keep_alive_payload)
@@ -394,7 +396,7 @@ class FoxtronConnection:
         """Periodically sends a keep-alive frame to maintain the connection."""
         while self._is_connected:
             try:
-                await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+                await asyncio.sleep(self._keep_alive_interval)
                 _LOGGER.debug("Sending keep-alive frame.")
                 await self.send_frame(self._keep_alive_frame)
             except asyncio.CancelledError:
@@ -418,28 +420,35 @@ class FoxtronConnection:
                     break
 
                 buffer += data
+
                 # Process all complete frames (SOH...ETB) in the buffer
-                while ETB in buffer:
-                    try:
-                        soh_index = buffer.index(SOH)
-                        etb_index = buffer.index(ETB)
-                    except ValueError:
-                        # No complete frame found, wait for more data
+                while True:
+                    soh_index = buffer.find(SOH)
+                    if soh_index == -1:
+                        last_etb = buffer.rfind(ETB)
+                        if last_etb != -1:
+                            buffer = buffer[last_etb + 1 :]
                         break
 
-                    # Handle corrupted buffer where ETB might appear before SOH
-                    if etb_index < soh_index:
-                        _LOGGER.warning(
-                            f"Discarding corrupted buffer part: {buffer[:soh_index]!r}"
+                    etb_index = buffer.find(ETB, soh_index + 1)
+                    if etb_index == -1:
+                        break  # Need more data
+
+                    frame_content = buffer[soh_index + 1 : etb_index]
+
+                    if (
+                        len(frame_content) % 2 != 0
+                        or any(
+                            c not in b"0123456789ABCDEFabcdef" for c in frame_content
                         )
-                        buffer = buffer[soh_index:]
+                    ):
+                        _LOGGER.warning(
+                            f"Discarding non-hex frame: {frame_content!r}"
+                        )
+                        buffer = buffer[etb_index + 1 :]
                         continue
 
-                    # Extract the ASCII-hex content of the frame
-                    frame_content = buffer[soh_index + 1 : etb_index]
-                    # Pass the frame content to the main driver for parsing
                     asyncio.create_task(self._on_message_callback(frame_content))
-                    # Remove the processed frame from the buffer
                     buffer = buffer[etb_index + 1 :]
             except asyncio.CancelledError:
                 break  # Task was cancelled, exit loop
@@ -474,7 +483,11 @@ class FoxtronDaliDriver:
     """
 
     def __init__(
-        self, host: str, port: int = 23, known_buttons: Optional[List[int]] = None
+        self,
+        host: str,
+        port: int = 23,
+        known_buttons: Optional[List[int]] = None,
+        keep_alive_interval: int = KEEP_ALIVE_INTERVAL,
     ):
         """Initializes the FoxtronDaliDriver.
 
@@ -485,7 +498,11 @@ class FoxtronDaliDriver:
                            prevent them from being logged as "newly discovered".
         """
         self._connection = FoxtronConnection(
-            host, port, self._parse_and_queue_message, self._clear_pending_futures
+            host,
+            port,
+            self._parse_and_queue_message,
+            self._clear_pending_futures,
+            keep_alive_interval=keep_alive_interval,
         )
         self._event_queue: asyncio.Queue[DaliEvent] = asyncio.Queue()
         self._pending_config_queries: Dict[int, asyncio.Future] = {}
@@ -535,6 +552,13 @@ class FoxtronDaliDriver:
         Args:
             frame_content: The ASCII-hex content of the received frame.
         """
+        if (
+            len(frame_content) % 2 != 0
+            or any(c not in b"0123456789ABCDEFabcdef" for c in frame_content)
+        ):
+            _LOGGER.warning(f"Invalid hex content in frame: {frame_content!r}")
+            return
+
         try:
             # Convert ASCII hex to binary
             frame_bytes = binascii.unhexlify(frame_content)
@@ -582,7 +606,11 @@ class FoxtronDaliDriver:
         if event:
             # If a new button is discovered, add it to the discovery set
             if isinstance(event, DaliInputNotificationEvent):
-                if event.address is not None and event.address not in self._known_buttons:
+                if (
+                    event.address_type == "Short"
+                    and event.address is not None
+                    and event.address not in self._known_buttons
+                ):
                     _LOGGER.info(
                         f"New button discovered at address {event.address}. Adding to discovery cache."
                     )
@@ -612,25 +640,26 @@ class FoxtronDaliDriver:
             3 + cmd_len_bytes : 3 + cmd_len_bytes + ans_len_bytes
         ]
 
-        # Workaround for a gateway firmware quirk where the sent command is not echoed back
-        # when only one query is in flight.
+        # Try to match the response to the echoed command
+        future = self._pending_dali_queries.pop(dali_cmd_sent, None)
+        if future:
+            if not future.done():
+                future.set_result(dali_answer[0] if dali_answer else None)
+            return None
+
+        # Fallback: if only one query is pending, assume the response is for it
         if len(self._pending_dali_queries) == 1:
             cmd_key, future = next(iter(self._pending_dali_queries.items()))
             self._pending_dali_queries.pop(cmd_key)
             if not future.done():
                 result = dali_answer[0] if dali_answer else None
                 _LOGGER.debug(
-                    f"Resolving pending query for {cmd_key.hex()} with {result} via workaround."
+                    f"Resolving pending query for {cmd_key.hex()} with {result} via fallback."
                 )
                 future.set_result(result)
             return None
 
-        # Standard handling: find the matching future and set its result
-        if dali_cmd_sent in self._pending_dali_queries:
-            future = self._pending_dali_queries.pop(dali_cmd_sent)
-            if not future.done():
-                future.set_result(dali_answer[0] if dali_answer else None)
-        elif dali_answer:
+        if dali_answer:
             # This is an unsolicited response, likely from another DALI master.
             # We create an event but don't know the source address.
             _LOGGER.debug(
@@ -643,9 +672,19 @@ class FoxtronDaliDriver:
 
     def _handle_dali_event(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles Type 0x03 and 0x04 spontaneous DALI events."""
+        msg_type = data_payload[0]
         dali_len_bits = data_payload[1]
         dali_len_bytes = (dali_len_bits + 7) // 8
-        dali_payload = data_payload[2 : 2 + dali_len_bytes]
+
+        if msg_type == MSG_TYPE_DALI_EVENT_WITH_ANSWER:
+            ans_len_bits = data_payload[2]
+            if ans_len_bits == 0:
+                _LOGGER.debug("Type 0x03 event with no answer (collision)")
+            start = 3
+        else:
+            start = 2
+
+        dali_payload = data_payload[start : start + dali_len_bytes]
 
         if dali_len_bits == 16 and len(dali_payload) == 2:
             return DaliCommandEvent(dali_payload, dali_payload[0], dali_payload[1])
@@ -765,9 +804,8 @@ class FoxtronDaliDriver:
         approx_time = fade_time_map.get(fade_code, "Unknown")
         _LOGGER.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
 
-        # Per DALI spec, fade time is set by loading a value into DTR0
-        # and then sending the SET FADE TIME command.
-        await self.send_dali_command(DALI_BROADCAST, DALI_CMD_DTR0, send_twice=False)
+        # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME
+        await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
         await asyncio.sleep(0.1)  # Small delay for gateway processing
         await self.send_dali_command(
             DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=False
