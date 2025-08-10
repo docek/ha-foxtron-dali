@@ -70,9 +70,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for driver in hass.data[DOMAIN].values():
                 await driver.set_fade_time(fade_time)
 
+        async def handle_scan_for_lights(call: ServiceCall) -> None:
+            """Handle the scan_for_lights service call for all buses."""
+            _LOGGER.info("Executing scan_for_lights for all configured DALI buses")
+            for driver in hass.data[DOMAIN].values():
+                await driver.scan_for_devices()
+
         hass.services.async_register(DOMAIN, "broadcast_on", handle_broadcast_on)
         hass.services.async_register(DOMAIN, "broadcast_off", handle_broadcast_off)
         hass.services.async_register(DOMAIN, "set_fade_time", handle_set_fade_time)
+        hass.services.async_register(DOMAIN, "scan_for_lights", handle_scan_for_lights)
 
     return True
 
