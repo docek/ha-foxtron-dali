@@ -148,3 +148,37 @@ Setting a color temperature of 3000K (Tc value 333, or `0x014D`) requires a mult
 1.  **Set DTR1 (High Byte):** Send `[Target Address, 0xC3, 0x01]` (Set DTR1 to `0x01`).
 2.  **Set DTR0 (Low Byte):** Send `[Target Address, 0xA3, 0x4D]` (Set DTR0 to `0x4D`).
 3.  **Activate Color Temp:** Send `[Target Address, 0xE7]` (SET TEMP (DTR1, DTR0)).
+
+## 4. Additional Implementation Notes
+
+### 4.1 TCP Connection Idle Timeout
+
+By default, the DALInet/DALI2net gateway will close a TCP connection after approximately 30 seconds of inactivity.
+This timeout value is **configurable** via the advanced settings page of the gateway's web interface:
+
+```
+http://192.168.1.241/AINDEX.HTM
+```
+
+The timeout parameter is listed in seconds. If your application requires a persistent connection, either:
+- Set this timeout to a higher value in the web interface, **or**
+- Periodically send a benign query (e.g., Type `0x06` "Config Query" for firmware version) at an interval shorter than the timeout.
+
+### 4.2 Sequence Flag Best Practice
+
+When sending a sequence of commands with the Sequence flag (bit 1 in the `Param` byte of Type `0x0B`), the last command
+in the sequence should **have the Sequence flag cleared (0)**. This automatically terminates the sequence and avoids
+needing to send an explicit `Sequence End` (Type `0x0A`). The explicit 0x0A message is only required if the last command
+was mistakenly sent with the Sequence flag set.
+
+### 4.3 Out-of-Order Responses
+
+The gateway may send spontaneous bus messages (e.g., Type `0x03` or `0x04`) interleaved with responses to your
+commands, if a bus event occurs at the same time. Your implementation should handle receiving an unrelated message
+immediately before the expected response.
+
+### 4.4 Telnet Port Caveat
+
+Although the ASCII protocol uses TCP port `23` by default (the traditional Telnet port), the gateway does **not**
+implement Telnet option negotiation. If using a Telnet client for testing, ensure it operates in raw mode to avoid
+misinterpretation of protocol bytes (such as `0xFF`).
