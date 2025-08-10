@@ -1,0 +1,59 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Foxtron DALI",
+                "description": "Enter the connection details for your Foxtron DALI gateway.",
+                "data": {
+                    "host": "Host",
+                    "port": "Port"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to the DALI gateway. Please check the host and port and try again.",
+            "unknown": "An unknown error occurred."
+        },
+        "abort": {
+            "already_configured": "This DALI gateway is already configured."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Foxtron DALI Options",
+                "menu_options": {
+                    "discover_buttons": "Discover Buttons",
+                    "set_fade_time": "Set Fade Time",
+                    "upload_config": "Upload Light Configuration"
+                }
+            },
+            "discover_buttons": {
+                "title": "Discover Buttons",
+                "description": "No new buttons have been discovered on this DALI bus. To discover buttons, physically press them. They will then appear here. Click SUBMIT to refresh the list after pressing them.",
+                "data": {
+                    "buttons": "Select buttons to add"
+                }
+            },
+            "set_fade_time": {
+                "title": "Set Fade Time",
+                "description": "Set the default DALI fade time (0-15) for all lights on this bus.",
+                "data": {
+                    "fade_time": "Fade Time"
+                }
+            },
+            "upload_config": {
+                "title": "Upload Light Configuration",
+                "description": "Upload a CSV file with the following columns: dali_address, name, area, unique_id",
+                "data": {
+                    "file_path": "Path to CSV file"
+                }
+            }
+        },
+        "error": {
+            "invalid_csv_header": "Invalid CSV header. The header must be: dali_address,name,area,unique_id",
+            "file_not_found": "File not found. Please check the path and try again.",
+            "invalid_file": "The uploaded file is not a valid CSV file."
+        }
+    }
+}

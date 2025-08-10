@@ -2,11 +2,13 @@
 import asyncio
 import logging
 from typing import Any, Dict, Optional
+import csv
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .driver import FoxtronDaliDriver
@@ -73,49 +75,120 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
+class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
     """Handle an options flow for Foxtron DALI."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.config_entry = config_entry
-        self.discovered_buttons: Dict[int, str] = {}
+        # Use a dictionary for the discovered buttons { "addr_str": "name_str" }
+        self.discovered_buttons: Dict[str, str] = {}
 
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
         """Manage the options."""
+        # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["discover_buttons", "set_fade_time"],
+            menu_options=["discover_buttons", "set_fade_time", "upload_config"],
+        )
+
+    async def async_step_upload_config(self, user_input: Optional[Dict[str, Any]] = None):
+        """Handle the upload of the light configuration file."""
+        errors = {}
+        if user_input is not None:
+            file_path = user_input["file_path"]
+            try:
+                with open(file_path, 'r') as f:
+                    reader = csv.reader(f)
+                    header = next(reader)
+                    if header != ["dali_address", "name", "area", "unique_id"]:
+                        errors["base"] = "invalid_csv_header"
+                    else:
+                        light_config = {}
+                        for row in reader:
+                            light_config[int(row[0])] = {"name": row[1], "area": row[2], "unique_id": row[3]}
+                        
+                        new_options = self.config_entry.options.copy()
+                        new_options["light_config"] = light_config
+                        return self.async_create_entry(title="", data=new_options)
+
+            except FileNotFoundError:
+                errors["base"] = "file_not_found"
+            except Exception as e:
+                _LOGGER.error(f"Error processing config file: {e}")
+                errors["base"] = "invalid_file"
+
+        return self.async_show_form(
+            step_id="upload_config",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("file_path"): str,
+                }
+            ),
+            errors=errors
         )
 
     async def async_step_discover_buttons(
         self, user_input: Optional[Dict[str, Any]] = None
     ):
-        """Handle the button discovery step."""
-        if user_input is not None:
-            # In the next step, we will add the selected buttons.
-            # For now, this just finishes the flow.
-            return self.async_create_entry(title="", data={})
-
+        """Handle the button discovery and adoption step."""
         driver: FoxtronDaliDriver = self.hass.data[DOMAIN][self.config_entry.entry_id]
+
+        # This block runs when the user clicks SUBMIT on the form
+        if user_input is not None:
+            # Get the list of buttons already in the config
+            existing_buttons = self.config_entry.options.get("buttons", [])
+
+            # Get the list of newly selected buttons from the form
+            # The multi-select returns a list of strings (the keys), so we convert to int
+            selected_buttons = [int(addr) for addr in user_input.get("buttons", [])]
+
+            # Combine the old and new lists and remove any duplicates
+            all_buttons = sorted(list(set(existing_buttons + selected_buttons)))
+
+            # Tell the driver that these buttons are now known
+            for button_addr in selected_buttons:
+                driver.add_known_button(button_addr)
+
+            # Clear the driver's cache of newly discovered buttons
+            driver.clear_newly_discovered_buttons()
+
+            # Create a new options dictionary with the updated button list
+            new_options = self.config_entry.options.copy()
+            new_options["buttons"] = all_buttons
+
+            # Save the updated options to the config entry
+            return self.async_create_entry(title="", data=new_options)
+
+        # This block runs when the form is first shown
+        # Get the list of buttons the driver has seen but are not yet configured
         newly_discovered = driver.get_newly_discovered_buttons()
 
-        for addr in newly_discovered:
-            self.discovered_buttons[addr] = f"DALI Button {addr}"
+        # Format them for the multi-select list: { "address_as_string": "Button Name" }
+        self.discovered_buttons = {
+            str(addr): f"DALI Button {addr}" for addr in newly_discovered
+        }
 
+        # If no new buttons have been seen, show an informational message.
+        if not self.discovered_buttons:
+            return self.async_show_form(
+                step_id="discover_buttons",
+                # An empty schema will just show the description and a submit button.
+                data_schema=vol.Schema({})
+            )
+
+        # If new buttons are found, show the form with the list of buttons.
         return self.async_show_form(
             step_id="discover_buttons",
             data_schema=vol.Schema(
                 {
+                    # Create a multi-select box. Default to nothing selected.
                     vol.Optional(
                         "buttons",
-                        description="Press new buttons to see them here",
+                        default=[],
                     ): cv.multi_select(self.discovered_buttons),
                 }
-            ),
-            description_placeholders={
-                "discovered_count": len(self.discovered_buttons)
-            },
+            )
         )
 
     async def async_step_set_fade_time(
@@ -123,7 +196,10 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
     ):
         """Handle the fade time setting step."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Get all current options and update the fade_time
+            new_options = self.config_entry.options.copy()
+            new_options["fade_time"] = user_input["fade_time"]
+            return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(
             step_id="set_fade_time",
@@ -134,5 +210,5 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
                         default=self.config_entry.options.get("fade_time", 0),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
                 }
-            ),
+            )
         )

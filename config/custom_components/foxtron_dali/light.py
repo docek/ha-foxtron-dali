@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,6 +13,23 @@ from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
 
+def _generate_unique_id(light_config: Dict, discovered_addresses: list) -> Dict:
+    """Generate unique IDs for lights that don't have one."""
+    name_area_counters = {}
+    for address in discovered_addresses:
+        if address in light_config:
+            config = light_config[address]
+            if not config.get("unique_id"):
+                name = config.get("name", f"DALI Light {address}")
+                area = config.get("area", "")
+                key = (name, area)
+                if key not in name_area_counters:
+                    name_area_counters[key] = 1
+                else:
+                    name_area_counters[key] += 1
+                
+                config["unique_id"] = f"light.{area.lower().replace(' ', '_')}_{name.lower().replace(' ', '_')}_{name_area_counters[key]}"
+    return light_config
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -21,21 +38,26 @@ async def async_setup_entry(
 ) -> None:
     """Set up the DALI lights from a config entry."""
     driver: FoxtronDaliDriver = hass.data[DOMAIN][entry.entry_id]
+    light_config = entry.options.get("light_config", {})
 
     # Discover lights on the DALI bus
     discovered_addresses = await driver.scan_for_devices()
-    lights = [DaliLight(driver, addr, entry) for addr in discovered_addresses]
+    
+    light_config = _generate_unique_id(light_config, discovered_addresses)
+
+    lights = [DaliLight(driver, addr, entry, light_config.get(addr)) for addr in discovered_addresses]
     async_add_entities(lights)
 
 
 class DaliLight(LightEntity):
     """Representation of a DALI light."""
 
-    def __init__(self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry) -> None:
+    def __init__(self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry, config: Dict) -> None:
         """Initialize the light."""
         self._driver = driver
         self._address = address
         self._entry = entry
+        self._config = config or {}
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._brightness: Optional[int] = None
@@ -44,20 +66,22 @@ class DaliLight(LightEntity):
     @property
     def name(self) -> str:
         """Return the name of the light."""
-        return f"DALI Light {self._address}"
+        return self._config.get("name", f"DALI Light {self._address}")
 
     @property
     def unique_id(self) -> str:
         """Return a unique ID for the light."""
-        return f"{self._entry.entry_id}_{self._address}"
+        return self._config.get("unique_id", f"{self._entry.entry_id}_{self._address}")
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information about this device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name=f"DALI Bus ({self._entry.data[CONF_HOST]}:{self._entry.data[CONF_PORT]})",
+            identifiers={(DOMAIN, self.unique_id)},
+            name=self.name,
             manufacturer="Foxtron",
+            via_device=(DOMAIN, self._entry.entry_id),
+            suggested_area=self._config.get("area"),
         )
 
     @property
