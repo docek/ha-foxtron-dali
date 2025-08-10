@@ -60,6 +60,7 @@ DALI_CMD_SET_FADE_TIME = 0x2F
 DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x90
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
+DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
 
 # --- DALI Addressing ---
 DALI_BROADCAST = 0xFF
@@ -819,6 +820,40 @@ class FoxtronDaliDriver:
                 _LOGGER.debug(f"Found control gear (light) at short address {addr}!")
                 found_devices.append(addr)
             await asyncio.sleep(0.1)  # Avoid flooding the bus
+        return found_devices
+
+    async def scan_for_input_devices(self) -> List[int]:
+        """Scans the DALI bus for input devices (e.g., buttons).
+
+        Returns:
+            A list of short addresses of discovered input devices.
+        """
+
+        _LOGGER.info("Starting DALI bus scan for input devices (buttons)...")
+        found_devices: List[int] = []
+
+        for addr in range(64):
+            address_byte = (addr * 2) + 1
+
+            # Skip control gear that respond to QUERY CONTROL GEAR PRESENT
+            gear_present = await self.send_dali_query(
+                address_byte, DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
+            )
+            if gear_present is not None:
+                await asyncio.sleep(0.1)
+                continue
+
+            response = await self.send_dali_query(address_byte, DALI_CMD_QUERY_DEVICE_TYPE)
+            if response is not None:
+                _LOGGER.debug(
+                    f"Found input device at short address {addr} (device type 0x{response:02X})"
+                )
+                found_devices.append(addr)
+                if addr not in self._known_buttons:
+                    self._newly_discovered_buttons.add(addr)
+
+            await asyncio.sleep(0.1)
+
         return found_devices
 
     async def query_actual_level(self, short_address: int) -> Optional[int]:

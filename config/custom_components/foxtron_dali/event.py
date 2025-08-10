@@ -74,7 +74,7 @@ class DaliButton(EventEntity):
         try:
             while self.hass.is_running:
                 event = await self._driver.get_event()
-                if not isinstance(event, DaliInputNotificationEvent) or event.address != self._address:
+                if not isinstance(event, DaliInputNotificationEvent):
                     continue
 
                 event_type = EVENT_CODE_NAMES.get(
