@@ -100,6 +100,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         driver: FoxtronDaliDriver = hass.data[DOMAIN].pop(entry.entry_id)
         await driver.disconnect()
 
+        # If this was the last configured entry, clean up the global services
+        if not hass.data[DOMAIN]:
+            hass.data.pop(DOMAIN)
+            for service in (
+                "broadcast_on",
+                "broadcast_off",
+                "set_fade_time",
+                "scan_for_lights",
+            ):
+                hass.services.async_remove(DOMAIN, service)
+
     return unload_ok
 
 
