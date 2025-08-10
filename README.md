@@ -103,6 +103,7 @@ The `event_type` in the trigger can be any of the following standard DALI-2 even
 *   `button_released`
 *   `short_press`
 *   `double_press`
+*   `triple_press`
 *   `long_press_start`
 *   `long_press_repeat`
 *   `long_press_stop`
