@@ -155,14 +155,16 @@ class DaliInputNotificationEvent(DaliEvent):
         self.address: Optional[int]
 
         # Decode the addressing byte according to DALI-2 spec
-        if (addressing_byte >> 7) == 0:
-            # Bit 7 is 0: Short Address or Instance Address
+        if (addressing_byte >> 7) == 0 and (addressing_byte & 0x01) == 0:
+            # Bit 7 is 0 and LSB is 0: Short Address
+            # Per IEC 62386-301 the 6 MSBs (bits 6-1) encode the address
             self.address_type = "Short"
-            self.address = addressing_byte & 0x3F  # Mask out the address bits
-        elif (addressing_byte >> 6) == 0b10:
-            # Bits 7-6 are 10: Group Address
+            self.address = addressing_byte >> 1
+        elif (addressing_byte >> 6) == 0b10 and (addressing_byte & 0x01) == 0:
+            # Bits 7-6 are 10 and LSB is 0: Group Address
+            # Bits 4-1 contain the group number
             self.address_type = "Group"
-            self.address = addressing_byte & 0x0F  # Mask out the group bits
+            self.address = (addressing_byte >> 1) & 0x0F
         elif addressing_byte == 0xFF:
             # All bits 1: Broadcast
             self.address_type = "Broadcast"
