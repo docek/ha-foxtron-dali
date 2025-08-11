@@ -2,7 +2,7 @@
 
 This custom component integrates Foxtron DALI gateways (DALInet, DALI2net) into Home Assistant, allowing you to control DALI lights and react to DALI-2 button events.
 
-It communicates with the Foxtron DALI gateways using a proprietary ASCII-based protocol over TCP/IP. The protocol is documented in the [`docs`](config/custom_components/foxtron_dali/docs) directory of this repository, with a detailed summary in [`protocol_spec.md`](config/custom_components/foxtron_dali/docs/protocol_spec.md).
+It communicates with the Foxtron DALI gateways using a proprietary ASCII-based protocol over TCP/IP. The protocol is documented in the [`docs`](custom_components/foxtron_dali/docs) directory of this repository, with a detailed summary in [`protocol_spec.md`](custom_components/foxtron_dali/docs/protocol_spec.md).
 
 ## Features
 
@@ -22,7 +22,7 @@ It communicates with the Foxtron DALI gateways using a proprietary ASCII-based p
 ## Installation
 
 1.  Ensure you have a working Home Assistant installation.
-2.  Copy the `foxtron_dali` directory into your `<config>/custom_components/` directory.
+2.  Copy the `custom_components/foxtron_dali` directory from this repository into your `<config>/custom_components/` directory, or add this repository to [HACS](https://hacs.xyz/) as a custom repository.
 3.  Restart Home Assistant.
 4.  Go to **Settings > Devices & Services** and click the **+ ADD INTEGRATION** button.
 5.  Search for "Foxtron DALI" and select it.
