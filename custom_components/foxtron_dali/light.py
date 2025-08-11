@@ -1,15 +1,20 @@
 import logging
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Callable
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .driver import FoxtronDaliDriver
+from .driver import (
+    FoxtronDaliDriver,
+    DaliCommandEvent,
+    DALI_BROADCAST,
+    DALI_CMD_OFF,
+    DALI_CMD_RECALL_MAX_LEVEL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +33,10 @@ def _generate_unique_id(light_config: Dict, discovered_addresses: list) -> Dict:
                 else:
                     name_area_counters[key] += 1
                 
-                config["unique_id"] = f"light.{area.lower().replace(' ', '_')}_{name.lower().replace(' ', '_')}_{name_area_counters[key]}"
+                config["unique_id"] = (
+                    f"light.{area.lower().replace(' ', '_')}_"
+                    f"{name.lower().replace(' ', '_')}_{name_area_counters[key]}"
+                )
     return light_config
 
 async def async_setup_entry(
@@ -56,6 +64,8 @@ async def async_setup_entry(
 class DaliLight(LightEntity):
     """Representation of a DALI light."""
 
+    _attr_should_poll = False
+
     def __init__(self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry, config: Dict) -> None:
         """Initialize the light."""
         self._driver = driver
@@ -66,6 +76,7 @@ class DaliLight(LightEntity):
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._brightness: Optional[int] = None
         self._is_on = False
+        self._unsub: Callable[[], None] | None = None
 
     @property
     def name(self) -> str:
@@ -116,6 +127,18 @@ class DaliLight(LightEntity):
         self._brightness = 0
         self.async_write_ha_state()
 
+    async def async_added_to_hass(self) -> None:
+        """Register for bus events when added to Home Assistant."""
+        await super().async_added_to_hass()
+        self._unsub = self._driver.add_event_listener(self._handle_event)
+        await self.async_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cleanup when entity is removed from Home Assistant."""
+        if self._unsub:
+            self._unsub()
+        await super().async_will_remove_from_hass()
+
     async def async_update(self) -> None:
         """Fetch new state data for this light."""
         level = await self._driver.query_actual_level(self._address)
@@ -126,3 +149,26 @@ class DaliLight(LightEntity):
         else:
             self._is_on = False
             self._brightness = 0
+
+    async def _handle_event(self, event) -> None:
+        """Handle incoming DALI bus events to update light state."""
+        if not isinstance(event, DaliCommandEvent):
+            return
+
+        if event.address_byte not in (DALI_BROADCAST, self._address * 2):
+            return
+
+        opcode = event.opcode_byte
+        if opcode == DALI_CMD_OFF:
+            self._is_on = False
+            self._brightness = 0
+        elif opcode == DALI_CMD_RECALL_MAX_LEVEL:
+            self._is_on = True
+            self._brightness = 255
+        elif 0 <= opcode <= 254:
+            self._brightness = round(opcode * 255 / 254)
+            self._is_on = self._brightness > 0
+        else:
+            return
+
+        self.async_write_ha_state()

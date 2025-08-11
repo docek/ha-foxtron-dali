@@ -7,6 +7,7 @@ It communicates with the Foxtron DALI gateways using a proprietary ASCII-based p
 ## Features
 
 *   **Light Discovery & Control:** Automatically discovers DALI control gear (lights) on the bus. They appear as standard Home Assistant `light` entities, supporting brightness control.
+*   **Push-Based State Updates:** Light entities listen for DALI commands on the bus and update instantly without polling.
 *   **Button Event Discovery & Integration:** Discovers DALI-2 input devices (like the Foxtron DALI4SW) when they are pressed. These are exposed as `event` entities for use in automations.
 *   **Global Services:** Provides services to send broadcast commands (`broadcast_on`, `broadcast_off`) to all lights on a DALI bus.
 *   **Configurable Fade Time:** Allows setting the DALI fade time via the integration options or a service call.
@@ -50,6 +51,8 @@ After setup, you can adjust additional settings by clicking **CONFIGURE** on the
 DALI lights are discovered automatically when the integration starts. They will appear as standard `light` entities in Home Assistant, named like `light.dali_light_0`, `light.dali_light_1`, etc., where the number is the DALI short address.
 
 You can control these lights like any other Home Assistant light entity in your dashboard, scenes, and automations.
+
+The integration listens for brightness commands on the DALI bus. When a light level changes—either directly or via broadcast—the corresponding `light` entity updates immediately. No polling or additional configuration is required.
 
 ### Using DALI Buttons
 
