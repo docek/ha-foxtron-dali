@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import Callable
 
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
@@ -71,82 +72,70 @@ class DaliButton(EventEntity):
             "long_press_repeat",
             "long_press_stop",
         ]
-        self._listener_task: asyncio.Task | None = None
+        self._unsub: Callable[[], None] | None = None
         self._button_states: dict[str, _ButtonState] = {}
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
-        self._listener_task = self.hass.async_create_task(self._event_listener())
+        self._unsub = self._driver.add_event_listener(self._handle_event)
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
-        if self._listener_task:
-            self._listener_task.cancel()
-            try:
-                await self._listener_task
-            except asyncio.CancelledError:
-                pass
+        if self._unsub:
+            self._unsub()
         await super().async_will_remove_from_hass()
 
-    async def _event_listener(self) -> None:
-        """Listen for and process events from the DALI driver."""
-        try:
-            while self.hass.is_running:
-                event = await self._driver.get_event()
-                if not isinstance(event, DaliInputNotificationEvent):
-                    continue
+    async def _handle_event(self, event) -> None:
+        """Process a single event from the DALI driver."""
+        if not isinstance(event, DaliInputNotificationEvent):
+            return
 
-                data = {
-                    "address": event.address,
-                    "address_type": event.address_type,
-                    "instance_number": event.instance_number,
-                }
+        data = {
+            "address": event.address,
+            "address_type": event.address_type,
+            "instance_number": event.instance_number,
+        }
 
-                key = f"{event.address_type}:{event.address}:{event.instance_number}"
-                state = self._button_states.setdefault(key, _ButtonState())
-                state.last_event_data = data
+        key = f"{event.address_type}:{event.address}:{event.instance_number}"
+        state = self._button_states.setdefault(key, _ButtonState())
+        state.last_event_data = data
 
-                if event.event_code == EVENT_BUTTON_PRESSED:
-                    self._trigger_event("button_pressed", data)
+        if event.event_code == EVENT_BUTTON_PRESSED:
+            self._trigger_event("button_pressed", data)
 
-                    if state.finalize_task:
-                        state.finalize_task.cancel()
-                        state.finalize_task = None
+            if state.finalize_task:
+                state.finalize_task.cancel()
+                state.finalize_task = None
 
-                    state.long_press_task = self.hass.async_create_task(
-                        self._handle_long_press(key)
-                    )
+            state.long_press_task = self.hass.async_create_task(
+                self._handle_long_press(key)
+            )
 
-                elif event.event_code == EVENT_BUTTON_RELEASED:
-                    self._trigger_event("button_released", data)
+        elif event.event_code == EVENT_BUTTON_RELEASED:
+            self._trigger_event("button_released", data)
 
-                    if state.long_press_task:
-                        state.long_press_task.cancel()
-                        state.long_press_task = None
+            if state.long_press_task:
+                state.long_press_task.cancel()
+                state.long_press_task = None
 
-                    if state.long_press_started:
-                        self._trigger_event("long_press_stop", data)
-                        state.long_press_started = False
-                        state.press_count = 0
-                    else:
-                        state.press_count += 1
-                        state.finalize_task = self.hass.async_create_task(
-                            self._finalize_presses(key)
-                        )
+            if state.long_press_started:
+                self._trigger_event("long_press_stop", data)
+                state.long_press_started = False
+                state.press_count = 0
+            else:
+                state.press_count += 1
+                state.finalize_task = self.hass.async_create_task(
+                    self._finalize_presses(key)
+                )
 
-                else:
-                    event_type = EVENT_CODE_NAMES.get(
-                        event.event_code, "unknown"
-                    ).lower().replace(" ", "_")
+        else:
+            event_type = EVENT_CODE_NAMES.get(
+                event.event_code, "unknown"
+            ).lower().replace(" ", "_")
 
-                    if event_type in self._attr_event_types:
-                        self._trigger_event(event_type, data)
-
-        except asyncio.CancelledError:
-            _LOGGER.debug("DALI event listener task cancelled.")
-        except Exception:
-            _LOGGER.exception("Unexpected error in DALI event listener")
+            if event_type in self._attr_event_types:
+                self._trigger_event(event_type, data)
 
     async def _handle_long_press(self, key: str) -> None:
         """Handle long press start and repeat events for a button."""

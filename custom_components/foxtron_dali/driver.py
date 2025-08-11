@@ -506,6 +506,8 @@ class FoxtronDaliDriver:
             keep_alive_interval=keep_alive_interval,
         )
         self._event_queue: asyncio.Queue[DaliEvent] = asyncio.Queue()
+        self._event_listeners: list[Callable[[DaliEvent], Awaitable[None] | None]] = []
+        self._event_dispatch_task: asyncio.Task | None = None
         self._pending_config_queries: Dict[int, asyncio.Future] = {}
         self._pending_dali_queries: Dict[bytes, asyncio.Future] = {}
         self._query_lock = asyncio.Lock()
@@ -522,10 +524,19 @@ class FoxtronDaliDriver:
     async def connect(self):
         """Connects to the gateway."""
         await self._connection.connect()
+        if self._event_dispatch_task is None:
+            self._event_dispatch_task = asyncio.create_task(self._event_dispatcher())
 
     async def disconnect(self):
         """Disconnects from the gateway."""
         await self._connection.disconnect()
+        if self._event_dispatch_task:
+            self._event_dispatch_task.cancel()
+            try:
+                await self._event_dispatch_task
+            except asyncio.CancelledError:
+                pass
+            self._event_dispatch_task = None
 
     async def get_event(self) -> DaliEvent:
         """Retrieves the next event from the incoming event queue.
@@ -536,6 +547,48 @@ class FoxtronDaliDriver:
             A DaliEvent object representing the received event.
         """
         return await self._event_queue.get()
+
+    def add_event_listener(
+        self, callback: Callable[[DaliEvent], Awaitable[None] | None]
+    ) -> Callable[[], None]:
+        """Register a callback invoked for each incoming :class:`DaliEvent`.
+
+        Callbacks are executed by the event dispatcher's asyncio task. They
+        must return quickly and avoid blocking; heavy synchronous work can
+        delay delivery of subsequent events to other listeners. Exceptions
+        raised by callbacks are logged with ``_LOGGER.exception`` and ignored.
+
+        Returns:
+            Callable[[], None]: Unsubscribe function to remove the listener."""
+
+        self._event_listeners.append(callback)
+
+        def _unsub() -> None:
+            if callback in self._event_listeners:
+                self._event_listeners.remove(callback)
+
+        return _unsub
+
+    async def _event_dispatcher(self) -> None:
+        """Background task that dispatches queued events to callbacks.
+
+        Runs as an asyncio task started with :meth:`start` and sequentially
+        invokes each registered listener for every event. Since callbacks run
+        in this task, they should avoid long-running or blocking operations.
+        Any exception raised by a listener is logged with ``_LOGGER.exception``
+        and does not prevent delivery to the remaining callbacks."""
+        try:
+            while True:
+                event = await self.get_event()
+                for callback in list(self._event_listeners):
+                    try:
+                        result = callback(event)
+                        if asyncio.iscoroutine(result):
+                            asyncio.create_task(result)
+                    except Exception:  # pragma: no cover - log unexpected
+                        _LOGGER.exception("Error in event listener callback")
+        except asyncio.CancelledError:
+            pass
 
     async def _clear_pending_futures(self):
         """Clears all pending futures when a disconnection occurs."""
