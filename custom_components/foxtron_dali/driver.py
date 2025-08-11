@@ -516,6 +516,9 @@ class FoxtronDaliDriver:
         # This set will hold addresses of NEW buttons seen on the bus.
         self._newly_discovered_buttons: set[int] = set()
 
+        # Cache for results of bus scanning to avoid repeated full scans
+        self._scan_cache: Optional[List[int]] = None
+
     async def connect(self):
         """Connects to the gateway."""
         await self._connection.connect()
@@ -849,23 +852,43 @@ class FoxtronDaliDriver:
         opcode_byte = level
         await self.send_dali_command(address_byte, opcode_byte, send_twice=False)
 
-    async def scan_for_devices(self) -> List[int]:
+    async def _scan_address(self, addr: int) -> Optional[int]:
+        """Helper to query a single address for a present device."""
+        address_byte = (addr * 2) + 1
+        opcode_byte = DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
+        return await self.send_dali_query(address_byte, opcode_byte, timeout=0.2)
+
+    async def scan_for_devices(self, refresh: bool = False) -> List[int]:
         """Scans the DALI bus for control gear (lights).
+
+        Results are cached to avoid repeated long scans. Set ``refresh`` to
+        ``True`` to force a new scan.
 
         Returns:
             A list of short addresses (0-63) of all discovered lights.
         """
+        if self._scan_cache is not None and not refresh:
+            return list(self._scan_cache)
+
         _LOGGER.info("Starting DALI bus scan for control gear (lights)...")
-        found_devices = []
-        for addr in range(64):
-            # Address for a query is (short_address * 2) + 1
-            address_byte = (addr * 2) + 1
-            opcode_byte = DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
-            response = await self.send_dali_query(address_byte, opcode_byte)
-            if response is not None:  # YES response means a device is present
-                _LOGGER.debug(f"Found control gear (light) at short address {addr}!")
-                found_devices.append(addr)
-            await asyncio.sleep(0.1)  # Avoid flooding the bus
+        found_devices: List[int] = []
+        batch_size = 8
+        for batch_start in range(0, 64, batch_size):
+            tasks = [
+                self._scan_address(addr)
+                for addr in range(batch_start, min(batch_start + batch_size, 64))
+            ]
+            results = await asyncio.gather(*tasks)
+            for idx, response in enumerate(results):
+                if response is not None:
+                    addr = batch_start + idx
+                    _LOGGER.debug(
+                        f"Found control gear (light) at short address {addr}!"
+                    )
+                    found_devices.append(addr)
+            await asyncio.sleep(0)
+
+        self._scan_cache = found_devices
         return found_devices
 
     async def query_actual_level(self, short_address: int) -> Optional[int]:
