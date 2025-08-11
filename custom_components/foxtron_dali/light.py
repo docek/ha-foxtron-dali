@@ -40,13 +40,17 @@ async def async_setup_entry(
     driver: FoxtronDaliDriver = hass.data[DOMAIN][entry.entry_id]
     light_config = entry.options.get("light_config", {})
 
-    # Discover lights on the DALI bus
-    discovered_addresses = await driver.scan_for_devices()
-    
-    light_config = _generate_unique_id(light_config, discovered_addresses)
+    async def _scan_and_add() -> None:
+        """Scan the bus and add discovered lights."""
+        discovered_addresses = await driver.scan_for_devices()
+        updated_config = _generate_unique_id(light_config, discovered_addresses)
+        lights = [
+            DaliLight(driver, addr, entry, updated_config.get(addr))
+            for addr in discovered_addresses
+        ]
+        async_add_entities(lights)
 
-    lights = [DaliLight(driver, addr, entry, light_config.get(addr)) for addr in discovered_addresses]
-    async_add_entities(lights)
+    hass.async_create_task(_scan_and_add())
 
 
 class DaliLight(LightEntity):
