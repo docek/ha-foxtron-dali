@@ -134,8 +134,9 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         """Handle the button discovery and adoption step."""
         driver: FoxtronDaliDriver = self.hass.data[DOMAIN][self.config_entry.entry_id]
 
-        # Actively scan the bus for input devices before showing the form
-        await driver.scan_for_input_devices()
+        # No active scan is performed here. Buttons are discovered passively
+        # when they send DALI-2 input events. Users should press the buttons
+        # they wish to add before refreshing this form.
 
         # This block runs when the user clicks SUBMIT on the form
         if user_input is not None:
