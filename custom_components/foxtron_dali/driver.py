@@ -43,8 +43,8 @@ MSG_TYPE_SEND_DALI_COMMAND = 0x0B         # Send a DALI frame (recommended metho
 
 # --- DALI-2 Input Notification Event Codes (IEC 62386-301) ---
 # These codes are received in the third byte of a 24-bit Input Notification frame.
-EVENT_BUTTON_PRESSED = 0x00
-EVENT_BUTTON_RELEASED = 0x01
+EVENT_BUTTON_PRESSED = 0x01
+EVENT_BUTTON_RELEASED = 0x00
 EVENT_SHORT_PRESS = 0x02
 EVENT_DOUBLE_PRESS = 0x03
 EVENT_LONG_PRESS_START = 0x04
@@ -138,42 +138,48 @@ class DaliInputNotificationEvent(DaliEvent):
     Parses the complex addressing scheme defined in IEC 62386-301.
 
     Attributes:
-        instance_number (int): The instance number of the input device.
+        instance_number (int): The parsed instance number of the input device.
         event_code (int): The DALI-2 event code (e.g., button pressed, released).
-        address_type (str): The type of addressing used ('Short', 'Group', 'Broadcast').
+        address_type (str): The type of addressing used ("Short", "Group", "Broadcast").
         address (Optional[int]): The short or group address, if applicable.
+        raw_instance (int): The raw instance byte as received.
+        device_type (int): Device type extracted from the instance byte.
+        flags (int): Additional flag bits from the instance byte.
     """
 
     def __init__(self, raw_payload: bytes):
         """Initializes and parses a DaliInputNotificationEvent."""
         super().__init__(raw_payload, "DALI-2 Input Notification")
+
         # Unpack the 24-bit (3-byte) payload
         addressing_byte = raw_payload[0]
-        self.instance_number = raw_payload[1]
+        instance_byte = raw_payload[1]
         self.event_code = raw_payload[2]
 
+        # Decode addressing
         self.address_type: str
         self.address: Optional[int]
 
-        # Decode the addressing byte according to DALI-2 spec
         if (addressing_byte >> 7) == 0 and (addressing_byte & 0x01) == 0:
             # Bit 7 is 0 and LSB is 0: Short Address
-            # Per IEC 62386-301 the 6 MSBs (bits 6-1) encode the address
             self.address_type = "Short"
             self.address = addressing_byte >> 1
         elif (addressing_byte >> 6) == 0b10 and (addressing_byte & 0x01) == 0:
             # Bits 7-6 are 10 and LSB is 0: Group Address
-            # Bits 4-1 contain the group number
             self.address_type = "Group"
             self.address = (addressing_byte >> 1) & 0x0F
         elif addressing_byte == 0xFF:
-            # All bits 1: Broadcast
             self.address_type = "Broadcast"
             self.address = None
         else:
-            # Should not happen with compliant devices
             self.address_type = "Unknown"
             self.address = None
+
+        # Decode the instance byte according to IEC 62386-301
+        self.raw_instance = instance_byte
+        self.instance_number = (instance_byte & 0x7C) >> 2
+        self.device_type = instance_byte >> 6
+        self.flags = instance_byte & 0x03
 
     def __repr__(self):
         """Return a string representation of the input notification event."""
@@ -184,8 +190,9 @@ class DaliInputNotificationEvent(DaliEvent):
             addr_str = self.address_type
 
         return (
-            f"DaliInputNotificationEvent({addr_str}, "
-            f"Instance={self.instance_number}, EventCode={self.event_code} ({event_name}))"
+            "DaliInputNotificationEvent("
+            f"{addr_str}, Instance={self.instance_number} "
+            f"(raw=0x{self.raw_instance:02X}), EventCode={self.event_code} ({event_name}))"
         )
 
 
