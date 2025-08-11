@@ -605,6 +605,8 @@ class FoxtronDaliDriver:
             _LOGGER.warning(f"No handler for message type 0x{msg_type:02X}")
 
         if event:
+            # Log the received event for debugging purposes
+            _LOGGER.debug("Received event: %r", event)
             # If a new button is discovered, add it to the discovery set
             if isinstance(event, DaliInputNotificationEvent):
                 if (
@@ -616,6 +618,12 @@ class FoxtronDaliDriver:
                         f"New button discovered at address {event.address}. Adding to discovery cache."
                     )
                     self._newly_discovered_buttons.add(event.address)
+                else:
+                    _LOGGER.debug(
+                        "Input event from %s address %s not added to discovery cache",
+                        event.address_type,
+                        event.address,
+                    )
 
             # Add the parsed event to the queue for the application to process
             await self._event_queue.put(event)
@@ -878,6 +886,9 @@ class FoxtronDaliDriver:
                 address_byte, DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
             )
             if gear_present is not None:
+                _LOGGER.debug(
+                    f"Address {addr} responded as control gear (0x{gear_present:02X}); skipping"
+                )
                 await asyncio.sleep(0.1)
                 continue
 
@@ -889,9 +900,21 @@ class FoxtronDaliDriver:
                 found_devices.append(addr)
                 if addr not in self._known_buttons:
                     self._newly_discovered_buttons.add(addr)
+                    _LOGGER.debug(
+                        f"Address {addr} added to newly discovered button cache"
+                    )
+            else:
+                _LOGGER.debug(
+                    f"No response to QUERY DEVICE TYPE at short address {addr}"
+                )
 
             await asyncio.sleep(0.1)
 
+        _LOGGER.info(
+            "Input device scan complete. Found %d candidate devices: %s",
+            len(found_devices),
+            found_devices,
+        )
         return found_devices
 
     async def query_actual_level(self, short_address: int) -> Optional[int]:
