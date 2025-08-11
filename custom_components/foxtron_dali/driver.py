@@ -868,55 +868,6 @@ class FoxtronDaliDriver:
             await asyncio.sleep(0.1)  # Avoid flooding the bus
         return found_devices
 
-    async def scan_for_input_devices(self) -> List[int]:
-        """Scans the DALI bus for input devices (e.g., buttons).
-
-        Returns:
-            A list of short addresses of discovered input devices.
-        """
-
-        _LOGGER.info("Starting DALI bus scan for input devices (buttons)...")
-        found_devices: List[int] = []
-
-        for addr in range(64):
-            address_byte = (addr * 2) + 1
-
-            # Skip control gear that respond to QUERY CONTROL GEAR PRESENT
-            gear_present = await self.send_dali_query(
-                address_byte, DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
-            )
-            if gear_present is not None:
-                _LOGGER.debug(
-                    f"Address {addr} responded as control gear (0x{gear_present:02X}); skipping"
-                )
-                await asyncio.sleep(0.1)
-                continue
-
-            response = await self.send_dali_query(address_byte, DALI_CMD_QUERY_DEVICE_TYPE)
-            if response is not None:
-                _LOGGER.debug(
-                    f"Found input device at short address {addr} (device type 0x{response:02X})"
-                )
-                found_devices.append(addr)
-                if addr not in self._known_buttons:
-                    self._newly_discovered_buttons.add(addr)
-                    _LOGGER.debug(
-                        f"Address {addr} added to newly discovered button cache"
-                    )
-            else:
-                _LOGGER.debug(
-                    f"No response to QUERY DEVICE TYPE at short address {addr}"
-                )
-
-            await asyncio.sleep(0.1)
-
-        _LOGGER.info(
-            "Input device scan complete. Found %d candidate devices: %s",
-            len(found_devices),
-            found_devices,
-        )
-        return found_devices
-
     async def query_actual_level(self, short_address: int) -> Optional[int]:
         """Queries the current brightness level of a light.
 

@@ -76,17 +76,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for driver in hass.data[DOMAIN].values():
                 await driver.scan_for_devices()
 
-        async def handle_scan_for_buttons(call: ServiceCall) -> None:
-            """Handle the scan_for_buttons service call for all buses."""
-            _LOGGER.info("Executing scan_for_buttons for all configured DALI buses")
-            for driver in hass.data[DOMAIN].values():
-                await driver.scan_for_input_devices()
-
         hass.services.async_register(DOMAIN, "broadcast_on", handle_broadcast_on)
         hass.services.async_register(DOMAIN, "broadcast_off", handle_broadcast_off)
         hass.services.async_register(DOMAIN, "set_fade_time", handle_set_fade_time)
         hass.services.async_register(DOMAIN, "scan_for_lights", handle_scan_for_lights)
-        hass.services.async_register(DOMAIN, "scan_for_buttons", handle_scan_for_buttons)
 
     return True
 
@@ -115,7 +108,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "broadcast_off",
                 "set_fade_time",
                 "scan_for_lights",
-                "scan_for_buttons",
             ):
                 hass.services.async_remove(DOMAIN, service)
 
