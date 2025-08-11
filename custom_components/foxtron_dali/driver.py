@@ -754,42 +754,78 @@ class FoxtronDaliDriver:
         )
 
     async def send_dali_query(
-        self, address_byte: int, opcode_byte: int, timeout: float = 0.5
+        self,
+        address_byte: int,
+        opcode_byte: int,
+        timeout: float = 0.5,
+        retries: int = 2,
+        backoff: float = 0.1,
     ) -> Optional[int]:
         """Sends a DALI query and waits for a response.
 
+        A simple retry mechanism with exponential backoff is implemented to
+        mitigate occasional timeouts on a noisy bus.
+
         Args:
-            address_byte: The DALI addressing byte for the query.
+            address_byte: The DALI addressing byte for the query. Per the DALI
+                spec the least significant bit should be 1 for queries.
             opcode_byte: The DALI query opcode.
             timeout: The maximum time to wait for a response in seconds.
+            retries: Number of additional attempts if the query times out.
+            backoff: Base delay (in seconds) before retrying; grows with the
+                attempt number.
 
         Returns:
             The 8-bit integer response from the DALI device, or None if no
-            response was received within the timeout.
+            response was received after all retries.
         """
-        dali_command = bytes([address_byte, opcode_byte])
-        if dali_command in self._pending_dali_queries:
-            _LOGGER.warning(f"Query for {dali_command.hex()} already in progress.")
-            return None
-
-        async with self._query_lock:
-            # Create a future to await the response
-            future = asyncio.get_running_loop().create_future()
-            self._pending_dali_queries[dali_command] = future
-
-            # Send the query frame
-            await self._send_dali_frame(dali_command, params=0x00)
-            _LOGGER.debug(
-                f"Sent DALI Query: Address=0x{address_byte:02X}, Opcode=0x{opcode_byte:02X}"
+        if address_byte & 0x01 == 0:
+            _LOGGER.warning(
+                "send_dali_query called with even address byte 0x%02X; "
+                "queries usually require the least significant bit set to 1",
+                address_byte,
             )
 
-            # Wait for the future to be resolved by the response handler
+        dali_command = bytes([address_byte, opcode_byte])
+        if dali_command in self._pending_dali_queries:
+            _LOGGER.warning("Query for %s already in progress.", dali_command.hex())
+            return None
+
+        total_attempts = retries + 1
+        for attempt in range(1, total_attempts + 1):
             try:
-                return await asyncio.wait_for(future, timeout=timeout)
+                async with self._query_lock:
+                    future = asyncio.get_running_loop().create_future()
+                    self._pending_dali_queries[dali_command] = future
+                    await self._send_dali_frame(dali_command, params=0x00)
+                    _LOGGER.debug(
+                        "Sent DALI Query: Address=0x%02X, Opcode=0x%02X "
+                        "(attempt %s/%s)",
+                        address_byte,
+                        opcode_byte,
+                        attempt,
+                        total_attempts,
+                    )
+                    response = await asyncio.wait_for(future, timeout=timeout)
+                    self._pending_dali_queries.pop(dali_command, None)
+                    return response
             except (asyncio.TimeoutError, ConnectionError) as e:
-                _LOGGER.debug(f"No response for query {dali_command.hex()}: {e}")
-                # Clean up the pending query if it timed out
                 self._pending_dali_queries.pop(dali_command, None)
+                _LOGGER.debug(
+                    "No response for query %s on attempt %s/%s: %s",
+                    dali_command.hex(),
+                    attempt,
+                    total_attempts,
+                    e,
+                )
+                if attempt < total_attempts:
+                    await asyncio.sleep(backoff * attempt)
+                    continue
+                _LOGGER.warning(
+                    "No response for query %s after %s attempts",
+                    dali_command.hex(),
+                    total_attempts,
+                )
                 return None
 
     # -------------------------------------------------------------------
