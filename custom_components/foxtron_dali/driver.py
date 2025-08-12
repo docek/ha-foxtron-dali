@@ -91,6 +91,17 @@ EVENT_CODE_NAMES = {
 }
 
 
+def format_button_id(address: int, instance_number: int) -> str:
+    """Return a stable identifier for a button."""
+    return f"{address}-{instance_number}"
+
+
+def parse_button_id(button_id: str) -> tuple[int, int]:
+    """Split a button ID back into address and instance number."""
+    addr_str, inst_str = button_id.split("-")
+    return int(addr_str), int(inst_str)
+
+
 # --- DALI Event Data Classes ---
 class DaliEvent:
     """Base class for a parsed event from the DALI bus.
@@ -679,7 +690,7 @@ class FoxtronDaliDriver:
                     event.address_type == "Short"
                     and event.address is not None
                 ):
-                    key = f"{event.address}-{event.instance_number}"
+                    key = format_button_id(event.address, event.instance_number)
                     if key not in self._known_buttons:
                         _LOGGER.info(
                             "New button discovered at address %s, instance %s. Adding to discovery cache.",

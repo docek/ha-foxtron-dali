@@ -11,7 +11,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
-from .driver import FoxtronDaliDriver
+from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             # Get the list of buttons already in the config
             existing_buttons = [
-                btn if isinstance(btn, str) else f"{btn[0]}-{btn[1]}"
+                btn if isinstance(btn, str) else format_button_id(*btn)
                 for btn in self.config_entry.options.get("buttons", [])
             ]
 
@@ -174,7 +174,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         self.discovered_buttons = {
             btn_id: f"DALI Button {addr} (inst {inst})"
             for btn_id in newly_discovered
-            for addr, inst in [btn_id.split("-")]
+            for addr, inst in [parse_button_id(btn_id)]
         }
 
         # If no new buttons have been seen, show an informational message.
