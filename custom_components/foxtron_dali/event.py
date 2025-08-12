@@ -15,6 +15,7 @@ from .driver import (
     EVENT_BUTTON_PRESSED,
     EVENT_BUTTON_RELEASED,
     EVENT_CODE_NAMES,
+    format_button_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,14 +92,14 @@ class DaliButton(EventEntity):
         if not isinstance(event, DaliInputNotificationEvent):
             return
 
+        key = format_button_id(event.address, event.instance_number)
         data = {
+            "button_id": key,
             "address": event.address,
             "address_type": event.address_type,
             "instance_number": event.instance_number,
-            "raw_instance": event.raw_instance,
         }
 
-        key = f"{event.address_type}:{event.address}:{event.raw_instance}"
         state = self._button_states.setdefault(key, _ButtonState())
         state.last_event_data = data
 

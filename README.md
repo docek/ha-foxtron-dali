@@ -72,7 +72,7 @@ Once a new button is detected, a persistent notification will appear in your Hom
 To add the button:
 1.  Go to **Settings > Devices & Services**.
 2.  Find the Foxtron DALI integration card and click **CONFIGURE**.
-3.  A list of newly discovered button instances (address and instance) will be shown.
+3.  A list of newly discovered button IDs (formatted as `address-instance`) will be shown.
 4.  Select the button(s) you wish to add and click **Submit**.
 
 **3. Using the Button in Automations**
@@ -90,11 +90,9 @@ automation:
       - platform: event
         event_type: dali_event
         event_data:
-          # Unique ID of the integration entry. Use address and raw_instance to
-          # target a specific button.
+          # Unique ID of the integration entry and button identifier
           unique_id: "YOUR_CONFIG_ENTRY_ID"
-          address: 56
-          raw_instance: 128
+          button_id: "56-1"
           # This is the specific button action you want to react to.
           event_type: "short_press"
     action:
