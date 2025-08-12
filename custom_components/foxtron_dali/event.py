@@ -95,9 +95,10 @@ class DaliButton(EventEntity):
             "address": event.address,
             "address_type": event.address_type,
             "instance_number": event.instance_number,
+            "raw_instance": event.raw_instance,
         }
 
-        key = f"{event.address_type}:{event.address}:{event.instance_number}"
+        key = f"{event.address_type}:{event.address}:{event.raw_instance}"
         state = self._button_states.setdefault(key, _ButtonState())
         state.last_event_data = data
 
