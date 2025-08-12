@@ -118,7 +118,10 @@ class DaliEvent:
 
     def __repr__(self):
         """Return a string representation of the event."""
-        return f"{self.__class__.__name__}(desc='{self.description}', raw='{self.raw_payload.hex().upper()}')"
+        return (
+            f"{self.__class__.__name__}(desc=\"{self.description}\", "
+            f"raw=\"{self.raw_payload.hex().upper()}\")"
+        )
 
 
 class DaliCommandEvent(DaliEvent):
@@ -232,7 +235,9 @@ class SpecialGatewayEvent(DaliEvent):
 
     def __repr__(self):
         """Return a string representation of the special gateway event."""
-        return f"SpecialGatewayEvent(code={self.event_code}, desc='{self.description}')"
+        return (
+            f"SpecialGatewayEvent(code={self.event_code}, desc=\"{self.description}\")"
+        )
 
 
 class ConfigResponseEvent(DaliEvent):
