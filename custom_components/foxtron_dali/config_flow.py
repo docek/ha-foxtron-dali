@@ -141,15 +141,14 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         # This block runs when the user clicks SUBMIT on the form
         if user_input is not None:
             # Get the list of buttons already in the config
-            existing_buttons = []
-            for btn in self.config_entry.options.get("buttons", []):
-                if isinstance(btn, (list, tuple)) and len(btn) == 2:
-                    existing_buttons.append((int(btn[0]), int(btn[1])))
-                else:
-                    existing_buttons.append((int(btn), 0))
+            existing_buttons = [
+                (int(btn[0]), int(btn[1]))
+                for btn in self.config_entry.options.get("buttons", [])
+                if isinstance(btn, (list, tuple)) and len(btn) == 2
+            ]
 
             # Get the list of newly selected buttons from the form
-            # The multi-select returns a list of strings ("addr-raw"), so parse them
+            # The multi-select returns a list of strings ("addr-inst"), so parse them
             selected_buttons = [
                 tuple(int(part) for part in addr.split("-"))
                 for addr in user_input.get("buttons", [])
@@ -159,8 +158,8 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             all_buttons = sorted(set(existing_buttons + selected_buttons))
 
             # Tell the driver that these buttons are now known
-            for button_addr, raw_instance in selected_buttons:
-                driver.add_known_button(button_addr, raw_instance)
+            for button_addr, instance_number in selected_buttons:
+                driver.add_known_button(button_addr, instance_number)
 
             # Clear the driver's cache of newly discovered buttons
             driver.clear_newly_discovered_buttons()
@@ -176,10 +175,10 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         # Get the list of buttons the driver has seen but are not yet configured
         newly_discovered = driver.get_newly_discovered_buttons()
 
-        # Format them for the multi-select list: { "addr-raw": "Button Name" }
+        # Format them for the multi-select list: { "addr-inst": "Button Name" }
         self.discovered_buttons = {
-            f"{addr}-{raw}": f"DALI Button {addr} (inst 0x{raw:02X})"
-            for addr, raw in newly_discovered
+            f"{addr}-{inst}": f"DALI Button {addr} (inst {inst})"
+            for addr, inst in newly_discovered
         }
 
         # If no new buttons have been seen, show an informational message.

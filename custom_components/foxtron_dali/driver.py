@@ -142,7 +142,6 @@ class DaliInputNotificationEvent(DaliEvent):
         event_code (int): The DALI-2 event code (e.g., button pressed, released).
         address_type (str): The type of addressing used ("Short", "Group", "Broadcast").
         address (Optional[int]): The short or group address, if applicable.
-        raw_instance (int): The raw instance byte as received.
         device_type (int): Device type extracted from the instance byte.
         flags (int): Additional flag bits from the instance byte.
     """
@@ -176,7 +175,6 @@ class DaliInputNotificationEvent(DaliEvent):
             self.address = None
 
         # Decode the instance byte according to IEC 62386-301
-        self.raw_instance = instance_byte
         self.instance_number = (instance_byte & 0x7C) >> 2
         self.device_type = instance_byte >> 6
         self.flags = instance_byte & 0x03
@@ -191,8 +189,8 @@ class DaliInputNotificationEvent(DaliEvent):
 
         return (
             "DaliInputNotificationEvent("
-            f"{addr_str}, Instance={self.instance_number} "
-            f"(raw=0x{self.raw_instance:02X}), EventCode={self.event_code} ({event_name}))"
+            f"{addr_str}, Instance={self.instance_number}, "
+            f"EventCode={self.event_code} ({event_name}))"
         )
 
 
@@ -502,7 +500,7 @@ class FoxtronDaliDriver:
         Args:
             host: The IP address of the Foxtron gateway.
             port: The TCP port for the specific DALI bus (23 or 24).
-            known_buttons: An optional list of (address, raw_instance) tuples
+            known_buttons: An optional list of (address, instance_number) tuples
                            for buttons already configured. These will not be
                            logged as newly discovered.
         """
@@ -521,16 +519,14 @@ class FoxtronDaliDriver:
         self._query_lock = asyncio.Lock()
 
         # This set holds all buttons the integration knows about as
-        # (address, raw_instance) tuples.
-        self._known_buttons: set[tuple[int, int]] = set()
-        for btn in known_buttons or []:
-            if isinstance(btn, (list, tuple)) and len(btn) == 2:
-                self._known_buttons.add((int(btn[0]), int(btn[1])))
-            else:
-                # Backwards compatibility for legacy int-only entries
-                self._known_buttons.add((int(btn), 0))
+        # (address, instance_number) tuples.
+        self._known_buttons: set[tuple[int, int]] = {
+            (int(btn[0]), int(btn[1]))
+            for btn in (known_buttons or [])
+            if isinstance(btn, (list, tuple)) and len(btn) == 2
+        }
 
-        # This set will hold (address, raw_instance) tuples of NEW buttons
+        # This set will hold (address, instance_number) tuples of NEW buttons
         # seen on the bus.
         self._newly_discovered_buttons: set[tuple[int, int]] = set()
 
@@ -685,20 +681,20 @@ class FoxtronDaliDriver:
                     event.address_type == "Short"
                     and event.address is not None
                 ):
-                    key = (event.address, event.raw_instance)
+                    key = (event.address, event.instance_number)
                     if key not in self._known_buttons:
                         _LOGGER.info(
-                            "New button discovered at address %s, instance 0x%02X. Adding to discovery cache.",
+                            "New button discovered at address %s, instance %s. Adding to discovery cache.",
                             event.address,
-                            event.raw_instance,
+                            event.instance_number,
                         )
                         self._newly_discovered_buttons.add(key)
                     else:
                         _LOGGER.debug(
-                            "Input event from %s address %s instance 0x%02X not added to discovery cache",
+                            "Input event from %s address %s instance %s not added to discovery cache",
                             event.address_type,
                             event.address,
-                            event.raw_instance,
+                            event.instance_number,
                         )
 
             # Add the parsed event to the queue for the application to process
@@ -1063,7 +1059,7 @@ class FoxtronDaliDriver:
 
     def get_newly_discovered_buttons(self) -> List[tuple[int, int]]:
         """
-        Returns a list of (address, raw_instance) tuples for buttons seen on
+        Returns a list of (address, instance_number) tuples for buttons seen on
         the bus that are not yet part of the known devices list.
         """
         return sorted(self._newly_discovered_buttons)
@@ -1072,12 +1068,12 @@ class FoxtronDaliDriver:
         """Clears the cache of newly discovered buttons."""
         self._newly_discovered_buttons.clear()
 
-    def add_known_button(self, address: int, raw_instance: int):
+    def add_known_button(self, address: int, instance_number: int):
         """
-        Adds a button (address, raw_instance) to the set of known devices.
+        Adds a button (address, instance_number) to the set of known devices.
         This should be called by the integration after the user has configured it.
         """
-        key = (address, raw_instance)
+        key = (address, instance_number)
         self._known_buttons.add(key)
         # Remove it from the 'new' set if it's there
         self._newly_discovered_buttons.discard(key)

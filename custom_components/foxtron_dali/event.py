@@ -73,7 +73,7 @@ class DaliButton(EventEntity):
             "long_press_stop",
         ]
         self._unsub: Callable[[], None] | None = None
-        self._button_states: dict[str, _ButtonState] = {}
+        self._button_states: dict[tuple[int, int], _ButtonState] = {}
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
@@ -91,14 +91,13 @@ class DaliButton(EventEntity):
         if not isinstance(event, DaliInputNotificationEvent):
             return
 
+        key = (event.address, event.instance_number)
         data = {
             "address": event.address,
             "address_type": event.address_type,
             "instance_number": event.instance_number,
-            "raw_instance": event.raw_instance,
         }
 
-        key = f"{event.address_type}:{event.address}:{event.raw_instance}"
         state = self._button_states.setdefault(key, _ButtonState())
         state.last_event_data = data
 
@@ -138,7 +137,7 @@ class DaliButton(EventEntity):
             if event_type in self._attr_event_types:
                 self._trigger_event(event_type, data)
 
-    async def _handle_long_press(self, key: str) -> None:
+    async def _handle_long_press(self, key: tuple[int, int]) -> None:
         """Handle long press start and repeat events for a button."""
         state = self._button_states[key]
         try:
@@ -152,7 +151,7 @@ class DaliButton(EventEntity):
         except asyncio.CancelledError:
             return
 
-    async def _finalize_presses(self, key: str) -> None:
+    async def _finalize_presses(self, key: tuple[int, int]) -> None:
         """Determine if the sequence was short, double or triple press."""
         state = self._button_states[key]
         try:

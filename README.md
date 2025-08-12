@@ -90,11 +90,11 @@ automation:
       - platform: event
         event_type: dali_event
         event_data:
-          # Unique ID of the integration entry. Use address and raw_instance to
-          # target a specific button.
+          # Unique ID of the integration entry. Use address and instance_number
+          # to target a specific button.
           unique_id: "YOUR_CONFIG_ENTRY_ID"
           address: 56
-          raw_instance: 128
+          instance_number: 1
           # This is the specific button action you want to react to.
           event_type: "short_press"
     action:
