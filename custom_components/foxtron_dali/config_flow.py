@@ -142,31 +142,26 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             # Get the list of buttons already in the config
             existing_buttons = [
-                (int(btn[0]), int(btn[1]))
+                btn if isinstance(btn, str) else f"{btn[0]}-{btn[1]}"
                 for btn in self.config_entry.options.get("buttons", [])
-                if isinstance(btn, (list, tuple)) and len(btn) == 2
             ]
 
             # Get the list of newly selected buttons from the form
-            # The multi-select returns a list of strings ("addr-inst"), so parse them
-            selected_buttons = [
-                tuple(int(part) for part in addr.split("-"))
-                for addr in user_input.get("buttons", [])
-            ]
+            selected_buttons = user_input.get("buttons", [])
 
             # Combine the old and new lists and remove any duplicates
             all_buttons = sorted(set(existing_buttons + selected_buttons))
 
             # Tell the driver that these buttons are now known
-            for button_addr, instance_number in selected_buttons:
-                driver.add_known_button(button_addr, instance_number)
+            for button_id in selected_buttons:
+                driver.add_known_button(button_id)
 
             # Clear the driver's cache of newly discovered buttons
             driver.clear_newly_discovered_buttons()
 
             # Create a new options dictionary with the updated button list
             new_options = self.config_entry.options.copy()
-            new_options["buttons"] = [list(btn) for btn in all_buttons]
+            new_options["buttons"] = all_buttons
 
             # Save the updated options to the config entry
             return self.async_create_entry(title="", data=new_options)
@@ -177,8 +172,9 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
 
         # Format them for the multi-select list: { "addr-inst": "Button Name" }
         self.discovered_buttons = {
-            f"{addr}-{inst}": f"DALI Button {addr} (inst {inst})"
-            for addr, inst in newly_discovered
+            btn_id: f"DALI Button {addr} (inst {inst})"
+            for btn_id in newly_discovered
+            for addr, inst in [btn_id.split("-")]
         }
 
         # If no new buttons have been seen, show an informational message.
