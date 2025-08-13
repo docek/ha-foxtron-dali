@@ -1,5 +1,7 @@
 """The Foxtron DALI integration."""
+
 import asyncio
+import contextlib
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -36,16 +38,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         manufacturer="Foxtron",
     )
 
-    # Connect to the driver
-    await driver.connect()
+    # Start connection in background so light services register quickly
+    connect_task = hass.async_create_task(driver.connect())
+    driver.connect_task = connect_task
 
-    # Set the fade time
-    await driver.set_fade_time(fade_time)
+    async def _post_connect() -> None:
+        await connect_task
+        await driver.set_fade_time(fade_time)
+
+    hass.async_create_task(_post_connect())
 
     # Set up the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    
 
     # --- Register Global Services ---
     # We only want to register the services once
@@ -66,7 +70,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def handle_set_fade_time(call: ServiceCall) -> None:
             """Handle the set_fade_time service call for all buses."""
             fade_time = call.data.get("fade_time", 0)
-            _LOGGER.info(f"Executing set_fade_time({fade_time}) for all configured DALI buses")
+            _LOGGER.info(
+                f"Executing set_fade_time({fade_time}) for all configured DALI buses"
+            )
             for driver in hass.data[DOMAIN].values():
                 await driver.set_fade_time(fade_time)
 
@@ -98,6 +104,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         driver: FoxtronDaliDriver = hass.data[DOMAIN].pop(entry.entry_id)
+        connect_task = getattr(driver, "connect_task", None)
+        if connect_task:
+            connect_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await connect_task
         await driver.disconnect()
 
         # If this was the last configured entry, clean up the global services
@@ -112,6 +123,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
-
-
-

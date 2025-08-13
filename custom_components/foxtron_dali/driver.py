@@ -548,6 +548,9 @@ class FoxtronDaliDriver:
         # Cache for results of bus scanning to avoid repeated full scans
         self._scan_cache: Optional[List[int]] = None
 
+        # Task created by the integration to establish the initial connection
+        self.connect_task: asyncio.Task | None = None
+
     async def connect(self):
         """Connects to the gateway."""
         await self._connection.connect()
