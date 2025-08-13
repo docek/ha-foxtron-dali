@@ -21,9 +21,8 @@ from .event import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class FoxtronDaliConfigFlow(  # type: ignore[misc, call-arg]
-    config_entries.ConfigFlow, domain=DOMAIN
-):
+@config_entries.HANDLERS.register(DOMAIN)
+class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
     """Handle a config flow for Foxtron DALI."""
 
     VERSION = 1
