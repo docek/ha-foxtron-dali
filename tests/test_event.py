@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import importlib
@@ -30,12 +31,8 @@ ha = ModuleType("homeassistant")
 sys_modules = {
     "homeassistant": ha,
     "homeassistant.components": ModuleType("homeassistant.components"),
-    "homeassistant.components.event": ModuleType(
-        "homeassistant.components.event"
-    ),
-    "homeassistant.config_entries": ModuleType(
-        "homeassistant.config_entries"
-    ),
+    "homeassistant.components.event": ModuleType("homeassistant.components.event"),
+    "homeassistant.config_entries": ModuleType("homeassistant.config_entries"),
     "homeassistant.core": ModuleType("homeassistant.core"),
     "homeassistant.helpers": ModuleType("homeassistant.helpers"),
     "homeassistant.helpers.entity_platform": ModuleType(
@@ -77,16 +74,16 @@ class AddEntitiesCallback:
     pass
 
 
-sys_modules["homeassistant.components.event"].EventEntity = EventEntity
-sys_modules["homeassistant.core"].HomeAssistant = HomeAssistant
-sys_modules["homeassistant.config_entries"].ConfigEntry = ConfigEntry
-sys_modules["homeassistant.helpers.entity_platform"].AddEntitiesCallback = (
-    AddEntitiesCallback
+setattr(sys_modules["homeassistant.components.event"], "EventEntity", EventEntity)
+setattr(sys_modules["homeassistant.core"], "HomeAssistant", HomeAssistant)
+setattr(sys_modules["homeassistant.config_entries"], "ConfigEntry", ConfigEntry)
+setattr(
+    sys_modules["homeassistant.helpers.entity_platform"],
+    "AddEntitiesCallback",
+    AddEntitiesCallback,
 )
 
 # Register stub modules
-import sys
-
 for name, module in sys_modules.items():
     sys.modules.setdefault(name, module)
 
@@ -98,6 +95,11 @@ DaliInputNotificationEvent = driver_module.DaliInputNotificationEvent
 EVENT_BUTTON_PRESSED = driver_module.EVENT_BUTTON_PRESSED
 EVENT_BUTTON_RELEASED = driver_module.EVENT_BUTTON_RELEASED
 EVENT_LONG_PRESS_START = driver_module.EVENT_LONG_PRESS_START
+
+if TYPE_CHECKING:
+    from custom_components.foxtron_dali.driver import (
+        DaliInputNotificationEvent as _DINEvent,
+    )
 
 
 class MockDriver:
@@ -118,7 +120,7 @@ class MockDriver:
                 await result
 
 
-def _make_event(code: int) -> DaliInputNotificationEvent:
+def _make_event(code: int) -> "_DINEvent":
     """Helper to create a DaliInputNotificationEvent with a fixed address."""
     return DaliInputNotificationEvent(bytes([0x02, 0x04, code]))
 

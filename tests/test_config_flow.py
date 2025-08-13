@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,9 +12,12 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if not hasattr(config_entries, "OptionsFlowWithReload"):
+
     class OptionsFlowWithReload(config_entries.OptionsFlow):
         """Fallback OptionsFlowWithReload for older Home Assistant."""
+
         pass
+
     config_entries.OptionsFlowWithReload = OptionsFlowWithReload
 
 from custom_components.foxtron_dali.const import DOMAIN
@@ -27,7 +30,9 @@ async def test_user_step_success(hass):
     flow = config_flow.FoxtronDaliConfigFlow()
     flow.context = {}
     flow.hass = hass
-    with patch("custom_components.foxtron_dali.config_flow.FoxtronDaliDriver") as mock_driver_cls:
+    with patch(
+        "custom_components.foxtron_dali.config_flow.FoxtronDaliDriver"
+    ) as mock_driver_cls:
         driver = AsyncMock()
         mock_driver_cls.return_value = driver
         driver.query_firmware_version.return_value = "1.0"
@@ -39,13 +44,16 @@ async def test_user_step_success(hass):
         driver.connect.assert_awaited_once()
         driver.disconnect.assert_awaited_once()
 
+
 @pytest.mark.asyncio
 async def test_user_step_cannot_connect(hass):
     """Test user step handles connection errors."""
     flow = config_flow.FoxtronDaliConfigFlow()
     flow.context = {}
     flow.hass = hass
-    with patch("custom_components.foxtron_dali.config_flow.FoxtronDaliDriver") as mock_driver_cls:
+    with patch(
+        "custom_components.foxtron_dali.config_flow.FoxtronDaliDriver"
+    ) as mock_driver_cls:
         driver = AsyncMock()
         mock_driver_cls.return_value = driver
         driver.connect.side_effect = ConnectionError
@@ -54,6 +62,7 @@ async def test_user_step_cannot_connect(hass):
 
         assert result["type"] == FlowResultType.FORM
         assert result["errors"]["base"] == "cannot_connect"
+
 
 @pytest.mark.asyncio
 async def test_upload_config_success(hass, tmp_path):
@@ -67,12 +76,15 @@ async def test_upload_config_success(hass, tmp_path):
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
 
-    result = await flow.async_step_upload_config(user_input={"file_path": str(csv_path)})
+    result = await flow.async_step_upload_config(
+        user_input={"file_path": str(csv_path)}
+    )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["light_config"] == {
         1: {"name": "Light", "area": "Room", "unique_id": "uid1"}
     }
+
 
 @pytest.mark.asyncio
 async def test_upload_config_bad_header(hass, tmp_path):
@@ -85,10 +97,13 @@ async def test_upload_config_bad_header(hass, tmp_path):
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
 
-    result = await flow.async_step_upload_config(user_input={"file_path": str(bad_path)})
+    result = await flow.async_step_upload_config(
+        user_input={"file_path": str(bad_path)}
+    )
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "invalid_csv_header"
+
 
 @pytest.mark.asyncio
 async def test_upload_config_file_not_found(hass, tmp_path):
@@ -104,6 +119,7 @@ async def test_upload_config_file_not_found(hass, tmp_path):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "file_not_found"
+
 
 @pytest.mark.asyncio
 async def test_discover_buttons_merges_options(hass):

@@ -101,6 +101,9 @@ class DaliButton(EventEntity):
         if not isinstance(event, DaliInputNotificationEvent):
             return
 
+        if event.address is None:
+            return
+
         key = format_button_id(event.address, event.instance_number)
         data = {
             "button_id": key,
