@@ -1,0 +1,10 @@
+[tool.mypy]
+python_version = "3.11"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
