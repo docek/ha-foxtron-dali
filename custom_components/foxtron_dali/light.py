@@ -52,6 +52,11 @@ async def async_setup_entry(
 
     async def _scan_and_add() -> None:
         """Scan the bus and add discovered lights."""
+        connect_task = getattr(driver, "connect_task", None)
+        if connect_task:
+            await connect_task
+        else:
+            await driver.connect()
         discovered_addresses = await driver.scan_for_devices()
         updated_config = _generate_unique_id(light_config, discovered_addresses)
         lights = [
