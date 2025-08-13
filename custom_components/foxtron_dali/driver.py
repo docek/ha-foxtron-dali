@@ -689,8 +689,16 @@ class FoxtronDaliDriver:
         if event:
             # Log the received event for debugging purposes
             _LOGGER.debug("Received event: %r", event)
-            # If a new button is discovered, add it to the discovery set
             if isinstance(event, DaliInputNotificationEvent):
+                if event.event_code not in (
+                    EVENT_BUTTON_PRESSED,
+                    EVENT_BUTTON_RELEASED,
+                ):
+                    _LOGGER.debug(
+                        "Ignoring input notification %s", 
+                        EVENT_CODE_NAMES.get(event.event_code, f"0x{event.event_code:02X}")
+                    )
+                    return
                 if (
                     event.address_type == "Short"
                     and event.address is not None

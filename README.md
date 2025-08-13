@@ -110,8 +110,13 @@ The `event_type` in the trigger can be any of the following standard DALI-2 even
 *   `long_press_start`
 *   `long_press_repeat`
 *   `long_press_stop`
-*   `button_stuck`
-*   `button_free`
+
+Foxtron DALI4SW devices are configured to send only the `button_pressed` and
+`button_released` notifications on the bus. The integration reconstructs all
+other button events locally based on timing. These thresholds (long press
+delay, repeat interval, and multi-press window) can be adjusted in the
+integration's configuration options. Any other button events from the bus are
+ignored.
 
 ## Services
 

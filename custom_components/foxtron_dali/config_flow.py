@@ -12,6 +12,11 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
+from .event import (
+    DEFAULT_LONG_PRESS_THRESHOLD,
+    DEFAULT_LONG_PRESS_REPEAT,
+    DEFAULT_MULTI_PRESS_WINDOW,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,7 +94,12 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["discover_buttons", "set_fade_time", "upload_config"],
+            menu_options=[
+                "discover_buttons",
+                "set_fade_time",
+                "set_event_timing",
+                "upload_config",
+            ],
         )
 
     async def async_step_upload_config(self, user_input: Optional[Dict[str, Any]] = None):
@@ -126,6 +136,43 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 }
             ),
             errors=errors
+        )
+
+    async def async_step_set_event_timing(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
+        """Handle configuration of button event timing."""
+        if user_input is not None:
+            new_options = self.config_entry.options.copy()
+            new_options["long_press_threshold"] = user_input["long_press_threshold"]
+            new_options["long_press_repeat"] = user_input["long_press_repeat"]
+            new_options["multi_press_window"] = user_input["multi_press_window"]
+            return self.async_create_entry(title="", data=new_options)
+
+        return self.async_show_form(
+            step_id="set_event_timing",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "long_press_threshold",
+                        default=self.config_entry.options.get(
+                            "long_press_threshold", DEFAULT_LONG_PRESS_THRESHOLD
+                        ),
+                    ): vol.Coerce(float),
+                    vol.Required(
+                        "long_press_repeat",
+                        default=self.config_entry.options.get(
+                            "long_press_repeat", DEFAULT_LONG_PRESS_REPEAT
+                        ),
+                    ): vol.Coerce(float),
+                    vol.Required(
+                        "multi_press_window",
+                        default=self.config_entry.options.get(
+                            "multi_press_window", DEFAULT_MULTI_PRESS_WINDOW
+                        ),
+                    ): vol.Coerce(float),
+                }
+            ),
         )
 
     async def async_step_discover_buttons(
