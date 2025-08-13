@@ -14,16 +14,15 @@ from .driver import (
     FoxtronDaliDriver,
     EVENT_BUTTON_PRESSED,
     EVENT_BUTTON_RELEASED,
-    EVENT_CODE_NAMES,
     format_button_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# Timing constants (in seconds)
-LONG_PRESS_THRESHOLD = 0.2
-LONG_PRESS_REPEAT = 0.2
-MULTI_PRESS_WINDOW = 0.3
+# Default timing constants (in seconds)
+DEFAULT_LONG_PRESS_THRESHOLD = 0.2
+DEFAULT_LONG_PRESS_REPEAT = 0.2
+DEFAULT_MULTI_PRESS_WINDOW = 0.3
 
 
 @dataclass
@@ -75,6 +74,16 @@ class DaliButton(EventEntity):
         ]
         self._unsub: Callable[[], None] | None = None
         self._button_states: dict[str, _ButtonState] = {}
+        options = entry.options
+        self._long_press_threshold = options.get(
+            "long_press_threshold", DEFAULT_LONG_PRESS_THRESHOLD
+        )
+        self._long_press_repeat = options.get(
+            "long_press_repeat", DEFAULT_LONG_PRESS_REPEAT
+        )
+        self._multi_press_window = options.get(
+            "multi_press_window", DEFAULT_MULTI_PRESS_WINDOW
+        )
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
@@ -132,23 +141,18 @@ class DaliButton(EventEntity):
                 )
 
         else:
-            event_type = EVENT_CODE_NAMES.get(
-                event.event_code, "unknown"
-            ).lower().replace(" ", "_")
-
-            if event_type in self._attr_event_types:
-                self._trigger_event(event_type, data)
+            return
 
     async def _handle_long_press(self, key: str) -> None:
         """Handle long press start and repeat events for a button."""
         state = self._button_states[key]
         try:
-            await asyncio.sleep(LONG_PRESS_THRESHOLD)
+            await asyncio.sleep(self._long_press_threshold)
             state.long_press_started = True
             data = state.last_event_data
             self._trigger_event("long_press_start", data)
             while True:
-                await asyncio.sleep(LONG_PRESS_REPEAT)
+                await asyncio.sleep(self._long_press_repeat)
                 self._trigger_event("long_press_repeat", data)
         except asyncio.CancelledError:
             return
@@ -157,7 +161,7 @@ class DaliButton(EventEntity):
         """Determine if the sequence was short, double or triple press."""
         state = self._button_states[key]
         try:
-            await asyncio.sleep(MULTI_PRESS_WINDOW)
+            await asyncio.sleep(self._multi_press_window)
         except asyncio.CancelledError:
             return
 
