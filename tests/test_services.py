@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.foxtron_dali.const import DOMAIN
