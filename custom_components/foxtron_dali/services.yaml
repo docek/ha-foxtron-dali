@@ -20,3 +20,21 @@ set_fade_time:
         number:
           min: 0
           max: 15
+
+export_names:
+  description: Export DALI address to name mappings to a JSON file.
+  fields:
+    path:
+      description: Optional path within the Home Assistant config directory.
+      example: foxtron_dali_names.json
+      selector:
+        text:
+
+import_names:
+  description: Import DALI address to name mappings from a JSON file.
+  fields:
+    path:
+      description: Optional path within the Home Assistant config directory.
+      example: foxtron_dali_names.json
+      selector:
+        text:

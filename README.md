@@ -138,6 +138,51 @@ Sets the DALI fade time for all devices on all configured DALI buses.
 |-------------|-----------------------------------------|---------|
 | `fade_time` | A DALI fade code from 0 to 15.          | `7`     |
 
+#### `foxtron_dali.export_names`
+
+Exports a mapping of DALI addresses to entity names, areas, and device
+identifiers. The mapping is written to a JSON file that can be restored
+later.
+
+**Domain:** `foxtron_dali`  
+**Service:** `export_names`
+
+**Parameters**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | string | No | File path relative to the Home Assistant configuration directory. Defaults to `foxtron_dali_names.json`. |
+
+**Example**
+
+```yaml
+service: foxtron_dali.export_names
+data:
+  path: foxtron_dali_names.json
+```
+
+#### `foxtron_dali.import_names`
+
+Reads a previously exported JSON file and restores entity names, areas, and
+device names.
+
+**Domain:** `foxtron_dali`  
+**Service:** `import_names`
+
+**Parameters**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `path` | string | No | File path of the JSON mapping relative to the Home Assistant configuration directory. Defaults to `foxtron_dali_names.json`. |
+
+**Example**
+
+```yaml
+service: foxtron_dali.import_names
+data:
+  path: foxtron_dali_names.json
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to open an issue or submit a pull request if you have any improvements or bug fixes.
