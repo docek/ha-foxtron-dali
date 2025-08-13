@@ -9,6 +9,8 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
+
+
 from .const import DOMAIN
 from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
 from .event import (
@@ -20,11 +22,10 @@ from .event import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
+class FoxtronDaliConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Foxtron DALI."""
 
     VERSION = 1
-    domain = DOMAIN
 
     @staticmethod
     @callback
