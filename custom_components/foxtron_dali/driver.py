@@ -29,16 +29,22 @@ KEEP_ALIVE_INTERVAL = 20  # Seconds to send keep-alive to prevent TCP timeout
 # See protocol_spec.md for a detailed description of each message type.
 
 # Received from Gateway (Converter -> Master)
-MSG_TYPE_DALI_EVENT_WITH_ANSWER = 0x03  # Spontaneous event from another master w/ DALI answer
-MSG_TYPE_DALI_EVENT_NO_ANSWER = 0x04    # Spontaneous event (e.g., button press) w/o DALI answer
-MSG_TYPE_SPECIAL_GATEWAY_EVENT = 0x05   # Gateway status message (e.g., power loss)
-MSG_TYPE_CONFIG_RESPONSE = 0x07         # Response to a config query (Type 0x06)
-MSG_TYPE_DALI_RESPONSE_WITH_ANSWER = 0x0D # Differentiated response to our query w/ DALI answer
-MSG_TYPE_CONFIRMATION_NO_ANSWER = 0x0E    # Differentiated confirmation for our command
+MSG_TYPE_DALI_EVENT_WITH_ANSWER = (
+    0x03  # Spontaneous event from another master w/ DALI answer
+)
+MSG_TYPE_DALI_EVENT_NO_ANSWER = (
+    0x04  # Spontaneous event (e.g., button press) w/o DALI answer
+)
+MSG_TYPE_SPECIAL_GATEWAY_EVENT = 0x05  # Gateway status message (e.g., power loss)
+MSG_TYPE_CONFIG_RESPONSE = 0x07  # Response to a config query (Type 0x06)
+MSG_TYPE_DALI_RESPONSE_WITH_ANSWER = (
+    0x0D  # Differentiated response to our query w/ DALI answer
+)
+MSG_TYPE_CONFIRMATION_NO_ANSWER = 0x0E  # Differentiated confirmation for our command
 
 # Sent to Gateway (Master -> Converter)
-MSG_TYPE_QUERY_CONFIG_ITEM = 0x06       # Query a configuration value from the gateway
-MSG_TYPE_SEND_DALI_COMMAND = 0x0B         # Send a DALI frame (recommended method)
+MSG_TYPE_QUERY_CONFIG_ITEM = 0x06  # Query a configuration value from the gateway
+MSG_TYPE_SEND_DALI_COMMAND = 0x0B  # Send a DALI frame (recommended method)
 
 
 # --- DALI-2 Input Notification Event Codes (IEC 62386-301) ---
@@ -119,8 +125,8 @@ class DaliEvent:
     def __repr__(self):
         """Return a string representation of the event."""
         return (
-            f"{self.__class__.__name__}(desc=\"{self.description}\", "
-            f"raw=\"{self.raw_payload.hex().upper()}\")"
+            f'{self.__class__.__name__}(desc="{self.description}", '
+            f'raw="{self.raw_payload.hex().upper()}")'
         )
 
 
@@ -235,9 +241,7 @@ class SpecialGatewayEvent(DaliEvent):
 
     def __repr__(self):
         """Return a string representation of the special gateway event."""
-        return (
-            f"SpecialGatewayEvent(code={self.event_code}, desc=\"{self.description}\")"
-        )
+        return f'SpecialGatewayEvent(code={self.event_code}, desc="{self.description}")'
 
 
 class ConfigResponseEvent(DaliEvent):
@@ -458,15 +462,10 @@ class FoxtronConnection:
 
                     frame_content = buffer[soh_index + 1 : etb_index]
 
-                    if (
-                        len(frame_content) % 2 != 0
-                        or any(
-                            c not in b"0123456789ABCDEFabcdef" for c in frame_content
-                        )
+                    if len(frame_content) % 2 != 0 or any(
+                        c not in b"0123456789ABCDEFabcdef" for c in frame_content
                     ):
-                        _LOGGER.warning(
-                            f"Discarding non-hex frame: {frame_content!r}"
-                        )
+                        _LOGGER.warning(f"Discarding non-hex frame: {frame_content!r}")
                         buffer = buffer[etb_index + 1 :]
                         continue
 
@@ -537,7 +536,9 @@ class FoxtronDaliDriver:
         # This set holds all buttons the integration knows about as
         # unique identifiers "address-instance".
         self._known_buttons: set[str] = {
-            f"{int(btn[0])}-{int(btn[1])}" if isinstance(btn, (list, tuple)) else str(btn)
+            f"{int(btn[0])}-{int(btn[1])}"
+            if isinstance(btn, (list, tuple))
+            else str(btn)
             for btn in (known_buttons or [])
         }
 
@@ -635,9 +636,8 @@ class FoxtronDaliDriver:
         Args:
             frame_content: The ASCII-hex content of the received frame.
         """
-        if (
-            len(frame_content) % 2 != 0
-            or any(c not in b"0123456789ABCDEFabcdef" for c in frame_content)
+        if len(frame_content) % 2 != 0 or any(
+            c not in b"0123456789ABCDEFabcdef" for c in frame_content
         ):
             _LOGGER.warning(f"Invalid hex content in frame: {frame_content!r}")
             return
@@ -695,14 +695,13 @@ class FoxtronDaliDriver:
                     EVENT_BUTTON_RELEASED,
                 ):
                     _LOGGER.debug(
-                        "Ignoring input notification %s", 
-                        EVENT_CODE_NAMES.get(event.event_code, f"0x{event.event_code:02X}")
+                        "Ignoring input notification %s",
+                        EVENT_CODE_NAMES.get(
+                            event.event_code, f"0x{event.event_code:02X}"
+                        ),
                     )
                     return
-                if (
-                    event.address_type == "Short"
-                    and event.address is not None
-                ):
+                if event.address_type == "Short" and event.address is not None:
                     key = format_button_id(event.address, event.instance_number)
                     if key not in self._known_buttons:
                         _LOGGER.info(
@@ -922,6 +921,8 @@ class FoxtronDaliDriver:
                 )
                 return None
 
+        return None
+
     # -------------------------------------------------------------------
     # --- Main Public API for DALI Operations ---
     # -------------------------------------------------------------------
@@ -937,8 +938,22 @@ class FoxtronDaliDriver:
             return
 
         fade_time_map = {
-            0: 0, 1: 0.7, 2: 1.0, 3: 1.4, 4: 2.0, 5: 2.8, 6: 4.0, 7: 5.7,
-            8: 8.0, 9: 11.3, 10: 16.0, 11: 22.6, 12: 32.0, 13: 45.3, 14: 64.0, 15: 90.5,
+            0: 0,
+            1: 0.7,
+            2: 1.0,
+            3: 1.4,
+            4: 2.0,
+            5: 2.8,
+            6: 4.0,
+            7: 5.7,
+            8: 8.0,
+            9: 11.3,
+            10: 16.0,
+            11: 22.6,
+            12: 32.0,
+            13: 45.3,
+            14: 64.0,
+            15: 90.5,
         }
         approx_time = fade_time_map.get(fade_code, "Unknown")
         _LOGGER.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
@@ -958,7 +973,9 @@ class FoxtronDaliDriver:
     async def broadcast_on(self):
         """Turns on all lights on the DALI bus to their maximum level via broadcast."""
         _LOGGER.debug("Broadcasting RECALL_MAX_LEVEL command to all devices")
-        await self.send_dali_command(DALI_BROADCAST, DALI_CMD_RECALL_MAX_LEVEL, send_twice=False)
+        await self.send_dali_command(
+            DALI_BROADCAST, DALI_CMD_RECALL_MAX_LEVEL, send_twice=False
+        )
 
     async def set_device_level(self, short_address: int, level: int):
         """Sets the brightness level of a single DALI device.
@@ -1061,7 +1078,9 @@ class FoxtronDaliDriver:
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
             except (asyncio.TimeoutError, ConnectionError) as e:
-                _LOGGER.error(f"Failed to get config response for item {item_number}: {e}")
+                _LOGGER.error(
+                    f"Failed to get config response for item {item_number}: {e}"
+                )
                 self._pending_config_queries.pop(item_number, None)
                 return None
 

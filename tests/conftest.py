@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from zoneinfo import ZoneInfo
 import pytest
-from homeassistant.util import dt as dt_util
+
+try:
+    from homeassistant.util import dt as dt_util
+except ModuleNotFoundError:  # pragma: no cover - fallback for tests
+
+    class dt_util:  # type: ignore
+        @staticmethod
+        def get_time_zone(name: str):
+            return ZoneInfo(name)
+
+        @staticmethod
+        def set_default_time_zone(tz):
+            pass
+
 
 PRAGUE_TZ = ZoneInfo("Europe/Prague")
 

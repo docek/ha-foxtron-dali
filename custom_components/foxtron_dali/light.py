@@ -18,6 +18,7 @@ from .driver import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def _generate_unique_id(light_config: Dict, discovered_addresses: list) -> Dict:
     """Generate unique IDs for lights that don't have one."""
     name_area_counters = {}
@@ -32,12 +33,13 @@ def _generate_unique_id(light_config: Dict, discovered_addresses: list) -> Dict:
                     name_area_counters[key] = 1
                 else:
                     name_area_counters[key] += 1
-                
+
                 config["unique_id"] = (
                     f"light.{area.lower().replace(' ', '_')}_"
                     f"{name.lower().replace(' ', '_')}_{name_area_counters[key]}"
                 )
     return light_config
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -66,7 +68,13 @@ class DaliLight(LightEntity):
 
     _attr_should_poll = False
 
-    def __init__(self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry, config: Dict) -> None:
+    def __init__(
+        self,
+        driver: FoxtronDaliDriver,
+        address: int,
+        entry: ConfigEntry,
+        config: Dict | None,
+    ) -> None:
         """Initialize the light."""
         self._driver = driver
         self._address = address

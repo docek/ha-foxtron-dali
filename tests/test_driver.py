@@ -1,10 +1,17 @@
 import asyncio
 import importlib.util
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 
 # Load driver module without importing the package (which requires Home Assistant)
-MODULE_PATH = Path(__file__).resolve().parent.parent / "custom_components" / "foxtron_dali" / "driver.py"
-_spec = importlib.util.spec_from_file_location("driver", MODULE_PATH)
+MODULE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "custom_components"
+    / "foxtron_dali"
+    / "driver.py"
+)
+_spec: ModuleSpec | None = importlib.util.spec_from_file_location("driver", MODULE_PATH)
+assert _spec is not None and _spec.loader is not None
 driver = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(driver)
 

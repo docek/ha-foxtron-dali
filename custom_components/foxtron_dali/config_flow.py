@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 from typing import Any, Dict, Optional
@@ -21,10 +20,11 @@ from .event import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class FoxtronDaliConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
     """Handle a config flow for Foxtron DALI."""
 
     VERSION = 1
+    domain = DOMAIN
 
     @staticmethod
     @callback
@@ -102,13 +102,15 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             ],
         )
 
-    async def async_step_upload_config(self, user_input: Optional[Dict[str, Any]] = None):
+    async def async_step_upload_config(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
         """Handle the upload of the light configuration file."""
         errors = {}
         if user_input is not None:
             file_path = user_input["file_path"]
             try:
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     reader = csv.reader(f)
                     header = next(reader)
                     if header != ["dali_address", "name", "area", "unique_id"]:
@@ -116,8 +118,12 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     else:
                         light_config = {}
                         for row in reader:
-                            light_config[int(row[0])] = {"name": row[1], "area": row[2], "unique_id": row[3]}
-                        
+                            light_config[int(row[0])] = {
+                                "name": row[1],
+                                "area": row[2],
+                                "unique_id": row[3],
+                            }
+
                         new_options = self.config_entry.options.copy()
                         new_options["light_config"] = light_config
                         return self.async_create_entry(title="", data=new_options)
@@ -135,7 +141,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     vol.Required("file_path"): str,
                 }
             ),
-            errors=errors
+            errors=errors,
         )
 
     async def async_step_set_event_timing(
@@ -229,7 +235,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             return self.async_show_form(
                 step_id="discover_buttons",
                 # An empty schema will just show the description and a submit button.
-                data_schema=vol.Schema({})
+                data_schema=vol.Schema({}),
             )
 
         # If new buttons are found, show the form with the list of buttons.
@@ -243,7 +249,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         default=[],
                     ): cv.multi_select(self.discovered_buttons),
                 }
-            )
+            ),
         )
 
     async def async_step_set_fade_time(
@@ -265,5 +271,5 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         default=self.config_entry.options.get("fade_time", 0),
                     ): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
                 }
-            )
+            ),
         )
