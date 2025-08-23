@@ -177,8 +177,7 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
     entity = entity_reg.async_get_or_create(
         "light", DOMAIN, "uid1", suggested_object_id="dali_light_1"
     )
-    entity_reg.async_update_entity(entity.entity_id, area_id=room.id)
-    hass.states.async_set(entity.entity_id, "off", {"friendly_name": "Friendly"})
+    entity_reg.async_update_entity(entity.entity_id, name="Friendly", area_id=room.id)
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
