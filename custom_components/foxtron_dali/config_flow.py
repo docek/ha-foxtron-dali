@@ -213,11 +213,13 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                         area = area_reg.async_get_area(entry.area_id)
                                         if area:
                                             area_name = area.name
+
                                     state = self.hass.states.get(entity_id)
                                     if state:
                                         name = state.name
                                     elif entry.name:
                                         name = entry.name
+
                             writer.writerow([address, name, area_name, unique_id])
                     return self.async_create_entry(
                         title="", data=self.config_entry.options
