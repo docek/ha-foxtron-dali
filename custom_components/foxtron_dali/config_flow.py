@@ -10,6 +10,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import (
     area_registry as ar,
     config_validation as cv,
+    device_registry as dr,
     entity_registry as er,
 )
 
@@ -125,6 +126,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         light_config = {}
                         entity_reg = er.async_get(self.hass)
                         area_reg = ar.async_get(self.hass)
+                        device_reg = dr.async_get(self.hass)
                         for row in reader:
                             address = int(row[0])
                             name = row[1]
@@ -139,14 +141,22 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                 "light", DOMAIN, unique_id
                             )
                             if entity_id:
+                                entry = entity_reg.async_get(entity_id)
                                 area_obj = area_reg.async_get_area_by_name(area)
                                 if area and not area_obj:
                                     area_obj = area_reg.async_get_or_create(area)
+                                area_id = area_obj.id if area_obj else None
                                 entity_reg.async_update_entity(
                                     entity_id,
                                     name=name,
-                                    area_id=area_obj.id if area_obj else None,
+                                    area_id=None,
                                 )
+                                if entry and entry.device_id:
+                                    device_reg.async_update_device(
+                                        entry.device_id,
+                                        name=name,
+                                        area_id=area_id,
+                                    )
 
                         new_options = self.config_entry.options.copy()
                         new_options["light_config"] = light_config
@@ -192,6 +202,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 else:
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
+                    device_reg = dr.async_get(self.hass)
                     with open(file_path, "w", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow(["dali_address", "name", "area", "unique_id"])
@@ -208,12 +219,19 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             if entity_id:
                                 entry = entity_reg.async_get(entity_id)
                                 if entry:
-                                    if entry.name:
+                                    if entry.device_id:
+                                        device = device_reg.async_get(entry.device_id)
+                                        if device and device.area_id:
+                                            area = area_reg.async_get_area(
+                                                device.area_id
+                                            )
+                                            if area:
+                                                area_name = area.name
+                                    state = self.hass.states.get(entity_id)
+                                    if state:
+                                        name = state.name
+                                    elif entry.name:
                                         name = entry.name
-                                    if entry.area_id:
-                                        area = area_reg.async_get_area(entry.area_id)
-                                        if area:
-                                            area_name = area.name
                             writer.writerow([address, name, area_name, unique_id])
                     return self.async_create_entry(
                         title="", data=self.config_entry.options

@@ -12,6 +12,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from homeassistant.helpers import (
     area_registry as ar,
+    device_registry as dr,
     entity_registry as er,
 )
 
@@ -80,8 +81,16 @@ async def test_upload_config_success(hass, tmp_path):
     area_reg = ar.async_get(hass)
     room = area_reg.async_get_or_create("Room")
     entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
+    )
     entity = entity_reg.async_get_or_create(
-        "light", DOMAIN, "uid1", suggested_object_id="dali_light_1"
+        "light",
+        DOMAIN,
+        "uid1",
+        suggested_object_id="dali_light_1",
+        device_id=device.id,
     )
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
@@ -96,8 +105,11 @@ async def test_upload_config_success(hass, tmp_path):
         1: {"name": "New Light", "area": "Room", "unique_id": "uid1"}
     }
     entity_entry = entity_reg.async_get(entity.entity_id)
+    device_entry = device_reg.async_get(device.id)
     assert entity_entry.name == "New Light"
-    assert entity_entry.area_id == room.id
+    assert entity_entry.area_id is None
+    assert device_entry.name == "New Light"
+    assert device_entry.area_id == room.id
 
 
 @pytest.mark.asyncio
@@ -163,8 +175,8 @@ async def test_backup_config_success(hass, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_backup_config_uses_entity_area(hass, tmp_path):
-    """Export uses entity name and area."""
+async def test_backup_config_uses_device_area(hass, tmp_path):
+    """Export uses entity name and device area."""
     backup_path = tmp_path / "backup.csv"
     entry = MockConfigEntry(
         domain=DOMAIN, data={}, options={"light_config": {1: {"unique_id": "uid1"}}}
@@ -174,10 +186,20 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
     area_reg = ar.async_get(hass)
     room = area_reg.async_get_or_create("Room")
     entity_reg = er.async_get(hass)
-    entity = entity_reg.async_get_or_create(
-        "light", DOMAIN, "uid1", suggested_object_id="dali_light_1"
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, entry.entry_id)},
+        area_id=room.id,
     )
-    entity_reg.async_update_entity(entity.entity_id, name="Friendly", area_id=room.id)
+    entity = entity_reg.async_get_or_create(
+        "light",
+        DOMAIN,
+        "uid1",
+        suggested_object_id="dali_light_1",
+        device_id=device.id,
+    )
+    entity_reg.async_update_entity(entity.entity_id, name="Friendly")
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
