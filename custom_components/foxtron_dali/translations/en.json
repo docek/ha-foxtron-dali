@@ -24,6 +24,7 @@
                 "title": "Foxtron DALI Options",
                 "menu_options": {
                     "discover_buttons": "Discover Buttons",
+                    "set_event_timing": "Set Event Timing",
                     "set_fade_time": "Set Fade Time",
                     "upload_config": "Upload Light Configuration",
                     "backup_config": "Backup Light Configuration"
@@ -41,6 +42,15 @@
                 "description": "Set the default DALI fade time (0-15) for all lights on this bus.",
                 "data": {
                     "fade_time": "Fade Time"
+                }
+            },
+            "set_event_timing": {
+                "title": "Set Event Timing",
+                "description": "Configure timing for button events.",
+                "data": {
+                    "long_press_threshold": "Long Press Threshold",
+                    "long_press_repeat": "Long Press Repeat",
+                    "multi_press_window": "Multi-Press Window"
                 }
             },
             "upload_config": {
