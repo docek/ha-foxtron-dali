@@ -157,11 +157,11 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             file_path = user_input["file_path"]
             light_config = self.config_entry.options.get("light_config", {})
-            driver: FoxtronDaliDriver = self.hass.data[DOMAIN][
+            driver: Optional[FoxtronDaliDriver] = self.hass.data.get(DOMAIN, {}).get(
                 self.config_entry.entry_id
-            ]
+            )
             try:
-                discovered_addresses = await driver.scan_for_devices()
+                discovered_addresses = await driver.scan_for_devices() if driver else []
                 all_addresses = sorted(
                     set(discovered_addresses) | set(light_config.keys())
                 )

@@ -133,9 +133,6 @@ async def test_backup_config_success(hass, tmp_path):
         },
     )
     entry.add_to_hass(hass)
-    driver = AsyncMock()
-    driver.scan_for_devices.return_value = [1]
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
 
