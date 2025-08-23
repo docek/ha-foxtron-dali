@@ -105,11 +105,8 @@ async def test_upload_config_success(hass, tmp_path):
         1: {"name": "New Light", "area": "Room", "unique_id": "uid1"}
     }
     entity_entry = entity_reg.async_get(entity.entity_id)
-    device_entry = device_reg.async_get(device.id)
     assert entity_entry.name == "New Light"
-    assert entity_entry.area_id is None
-    assert device_entry.name == "New Light"
-    assert device_entry.area_id == room.id
+    assert entity_entry.area_id == room.id
 
 
 @pytest.mark.asyncio
@@ -175,8 +172,8 @@ async def test_backup_config_success(hass, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_backup_config_uses_device_area(hass, tmp_path):
-    """Export uses entity name and device area."""
+async def test_backup_config_uses_entity_area(hass, tmp_path):
+    """Export uses entity name and entity area."""
     backup_path = tmp_path / "backup.csv"
     entry = MockConfigEntry(
         domain=DOMAIN, data={}, options={"light_config": {1: {"unique_id": "uid1"}}}
@@ -190,7 +187,6 @@ async def test_backup_config_uses_device_area(hass, tmp_path):
     device = device_reg.async_get_or_create(
         config_entry_id=entry.entry_id,
         identifiers={(DOMAIN, entry.entry_id)},
-        area_id=room.id,
     )
     entity = entity_reg.async_get_or_create(
         "light",
@@ -199,7 +195,7 @@ async def test_backup_config_uses_device_area(hass, tmp_path):
         suggested_object_id="dali_light_1",
         device_id=device.id,
     )
-    entity_reg.async_update_entity(entity.entity_id, name="Friendly")
+    entity_reg.async_update_entity(entity.entity_id, name="Friendly", area_id=room.id)
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
