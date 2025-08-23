@@ -10,6 +10,11 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 if not hasattr(config_entries, "OptionsFlowWithReload"):
 
@@ -68,10 +73,21 @@ async def test_user_step_cannot_connect(hass):
 async def test_upload_config_success(hass, tmp_path):
     """Test successful CSV upload handling."""
     csv_path = tmp_path / "lights.csv"
-    csv_path.write_text("dali_address,name,area,unique_id\n1,Light,Room,uid1\n")
+    csv_path.write_text("dali_address,name,area,unique_id\n1,New Light,Room,uid1\n")
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
+
+    area_reg = ar.async_get(hass)
+    room = area_reg.async_get_or_create("Room")
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "dev1")}, name="Old"
+    )
+    entity_reg = er.async_get(hass)
+    entity = entity_reg.async_get_or_create(
+        "light", DOMAIN, "uid1", suggested_object_id="dali_light_1", device_id=device.id
+    )
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
@@ -82,8 +98,13 @@ async def test_upload_config_success(hass, tmp_path):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["light_config"] == {
-        1: {"name": "Light", "area": "Room", "unique_id": "uid1"}
+        1: {"name": "New Light", "area": "Room", "unique_id": "uid1"}
     }
+    entity_entry = entity_reg.async_get(entity.entity_id)
+    assert entity_entry.name == "New Light"
+    device_entry = device_reg.async_get(device.id)
+    assert device_entry.name == "New Light"
+    assert device_entry.area_id == room.id
 
 
 @pytest.mark.asyncio
@@ -145,6 +166,45 @@ async def test_backup_config_success(hass, tmp_path):
     assert lines == [
         "dali_address,name,area,unique_id",
         "1,Light,Room,uid1",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_backup_config_uses_device_area(hass, tmp_path):
+    """Export uses entity name and device area."""
+    backup_path = tmp_path / "backup.csv"
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={}, options={"light_config": {1: {"unique_id": "uid1"}}}
+    )
+    entry.add_to_hass(hass)
+
+    area_reg = ar.async_get(hass)
+    room = area_reg.async_get_or_create("Room")
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "dev1")},
+        name="Device",
+    )
+    device_reg.async_update_device(device.id, area_id=room.id)
+    entity_reg = er.async_get(hass)
+    entity = entity_reg.async_get_or_create(
+        "light", DOMAIN, "uid1", suggested_object_id="dali_light_1", device_id=device.id
+    )
+    hass.states.async_set(entity.entity_id, "off", {"friendly_name": "Friendly"})
+
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_backup_config(
+        user_input={"file_path": str(backup_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    lines = backup_path.read_text().splitlines()
+    assert lines == [
+        "dali_address,name,area,unique_id",
+        "1,Friendly,Room,uid1",
     ]
 
 
