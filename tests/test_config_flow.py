@@ -110,6 +110,91 @@ async def test_upload_config_success(hass, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
+    """Ensure upload renames existing entities instead of creating new ones."""
+    csv_path = tmp_path / "lights.csv"
+    csv_path.write_text("dali_address,name,area,unique_id\n1,New Light,Room,uid1\n")
+
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+
+    area_reg = ar.async_get(hass)
+    room = area_reg.async_get_or_create("Room")
+    entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
+    )
+    # Create entity with default unique ID
+    default_uid = f"{entry.entry_id}_1"
+    entity_reg.async_get_or_create(
+        "light",
+        DOMAIN,
+        default_uid,
+        suggested_object_id="dali_light_1",
+        device_id=device.id,
+    )
+
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_upload_config(
+        user_input={"file_path": str(csv_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    entity_id = entity_reg.async_get_entity_id("light", DOMAIN, "uid1")
+    assert entity_id is not None
+    entry_after = entity_reg.async_get(entity_id)
+    assert entry_after.name == "New Light"
+    assert entry_after.area_id == room.id
+    assert entity_reg.async_get_entity_id("light", DOMAIN, default_uid) is None
+    # Only one entity should remain for this integration
+    assert sum(1 for e in entity_reg.entities.values() if e.platform == DOMAIN) == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_config_mismatch_notification(hass, tmp_path):
+    """Notify when backup differs from discovered lights."""
+    csv_path = tmp_path / "lights.csv"
+    csv_path.write_text("dali_address,name,area,unique_id\n1,Light,Room,uid1\n")
+
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+
+    area_reg = ar.async_get(hass)
+    area_reg.async_get_or_create("Room")
+    entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
+    )
+    default_uid = f"{entry.entry_id}_1"
+    entity_reg.async_get_or_create(
+        "light",
+        DOMAIN,
+        default_uid,
+        suggested_object_id="dali_light_1",
+        device_id=device.id,
+    )
+
+    driver = AsyncMock()
+    driver.scan_for_devices.return_value = [1, 2]
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
+
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    with patch(
+        "homeassistant.components.persistent_notification.async_create",
+    ) as mock_notify:
+        await flow.async_step_upload_config(user_input={"file_path": str(csv_path)})
+        mock_notify.assert_called_once()
+        msg = mock_notify.call_args[0][1]
+        assert "New lights" in msg
+
+
+@pytest.mark.asyncio
 async def test_upload_config_bad_header(hass, tmp_path):
     """Test CSV upload with invalid header."""
     bad_path = tmp_path / "bad.csv"
