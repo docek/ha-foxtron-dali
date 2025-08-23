@@ -199,6 +199,43 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             errors=errors,
         )
 
+    async def async_step_backup_config(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
+        """Handle backing up the light configuration to a file."""
+        errors = {}
+        if user_input is not None:
+            file_path = user_input["file_path"]
+            light_config = self.config_entry.options.get("light_config")
+            if not light_config:
+                errors["base"] = "no_config"
+            else:
+                try:
+                    with open(file_path, "w", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow(["dali_address", "name", "area", "unique_id"])
+                        for address, cfg in light_config.items():
+                            writer.writerow(
+                                [
+                                    address,
+                                    cfg.get("name", ""),
+                                    cfg.get("area", ""),
+                                    cfg.get("unique_id", ""),
+                                ]
+                            )
+                    return self.async_create_entry(
+                        title="", data=self.config_entry.options
+                    )
+                except OSError as err:
+                    _LOGGER.error("Error writing backup file: %s", err)
+                    errors["base"] = "write_failed"
+
+        return self.async_show_form(
+            step_id="backup_config",
+            data_schema=vol.Schema({vol.Required("file_path"): str}),
+            errors=errors,
+        )
+
     async def async_step_set_event_timing(
         self, user_input: Optional[Dict[str, Any]] = None
     ):

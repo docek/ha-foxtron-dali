@@ -72,7 +72,8 @@
             "invalid_csv_header": "Invalid CSV header. The header must be: dali_address,name,area,unique_id",
             "file_not_found": "File not found. Please check the path and try again.",
             "invalid_file": "The uploaded file is not a valid CSV file.",
-            "write_failed": "Failed to write to file. Please check the path and try again."
+            "write_failed": "Failed to write to file. Please check the path and try again.",
+            "no_config": "No light configuration to backup."
         }
     }
 }
