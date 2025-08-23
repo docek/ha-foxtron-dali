@@ -7,7 +7,12 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import (
+    area_registry as ar,
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 
 from .const import DOMAIN
@@ -119,12 +124,35 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         errors["base"] = "invalid_csv_header"
                     else:
                         light_config = {}
+                        entity_reg = er.async_get(self.hass)
+                        area_reg = ar.async_get(self.hass)
+                        device_reg = dr.async_get(self.hass)
                         for row in reader:
-                            light_config[int(row[0])] = {
-                                "name": row[1],
-                                "area": row[2],
-                                "unique_id": row[3],
+                            address = int(row[0])
+                            name = row[1]
+                            area = row[2]
+                            unique_id = row[3]
+                            light_config[address] = {
+                                "name": name,
+                                "area": area,
+                                "unique_id": unique_id,
                             }
+                            entity_id = entity_reg.async_get_entity_id(
+                                "light", DOMAIN, unique_id
+                            )
+                            if entity_id:
+                                entity_reg.async_update_entity(entity_id, name=name)
+                                entry = entity_reg.async_get(entity_id)
+                                if entry and entry.device_id:
+                                    area_obj = area_reg.async_get_area_by_name(area)
+                                    if area and not area_obj:
+                                        area_obj = area_reg.async_get_or_create(area)
+                                    area_id = area_obj.id if area_obj else None
+                                    device_reg.async_update_device(
+                                        entry.device_id,
+                                        name=name,
+                                        area_id=area_id,
+                                    )
 
                         new_options = self.config_entry.options.copy()
                         new_options["light_config"] = light_config
@@ -168,22 +196,37 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 if not all_addresses:
                     errors["base"] = "no_config"
                 else:
+                    entity_reg = er.async_get(self.hass)
+                    area_reg = ar.async_get(self.hass)
+                    device_reg = dr.async_get(self.hass)
                     with open(file_path, "w", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow(["dali_address", "name", "area", "unique_id"])
                         for address in all_addresses:
                             cfg = light_config.get(address, {})
-                            writer.writerow(
-                                [
-                                    address,
-                                    cfg.get("name", f"DALI Light {address}"),
-                                    cfg.get("area", ""),
-                                    cfg.get(
-                                        "unique_id",
-                                        f"{self.config_entry.entry_id}_{address}",
-                                    ),
-                                ]
+                            unique_id = cfg.get(
+                                "unique_id", f"{self.config_entry.entry_id}_{address}"
                             )
+                            entity_id = entity_reg.async_get_entity_id(
+                                "light", DOMAIN, unique_id
+                            )
+                            name = cfg.get("name", f"DALI Light {address}")
+                            area_name = cfg.get("area", "")
+                            if entity_id:
+                                entry = entity_reg.async_get(entity_id)
+                                if entry:
+                                    if entry.device_id:
+                                        device = device_reg.async_get(entry.device_id)
+                                        if device and device.area_id:
+                                            area = area_reg.async_get_area(
+                                                device.area_id
+                                            )
+                                            if area:
+                                                area_name = area.name
+                                    state = self.hass.states.get(entity_id)
+                                    if state:
+                                        name = state.name
+                            writer.writerow([address, name, area_name, unique_id])
                     return self.async_create_entry(
                         title="", data=self.config_entry.options
                     )
