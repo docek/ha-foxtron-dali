@@ -123,12 +123,31 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         errors["base"] = "invalid_csv_header"
                     else:
                         light_config = {}
+                        entity_reg = er.async_get(self.hass)
+                        area_reg = ar.async_get(self.hass)
                         for row in reader:
-                            light_config[int(row[0])] = {
-                                "name": row[1],
-                                "area": row[2],
-                                "unique_id": row[3],
+                            address = int(row[0])
+                            name = row[1]
+                            area = row[2]
+                            unique_id = row[3]
+                            light_config[address] = {
+                                "name": name,
+                                "area": area,
+                                "unique_id": unique_id,
                             }
+                            entity_id = entity_reg.async_get_entity_id(
+                                "light", DOMAIN, unique_id
+                            )
+                            if entity_id:
+                                area_obj = area_reg.async_get_area_by_name(area)
+                                if area and not area_obj:
+                                    area_obj = area_reg.async_get_or_create(area)
+                                area_id = area_obj.id if area_obj else None
+                                entity_reg.async_update_entity(
+                                    entity_id,
+                                    name=name,
+                                    area_id=area_id,
+                                )
 
                         new_options = self.config_entry.options.copy()
                         new_options["light_config"] = light_config
@@ -194,9 +213,13 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                         area = area_reg.async_get_area(entry.area_id)
                                         if area:
                                             area_name = area.name
-                                state = self.hass.states.get(entity_id)
-                                if state:
-                                    name = state.name
+
+                                    state = self.hass.states.get(entity_id)
+                                    if state:
+                                        name = state.name
+                                    elif entry.name:
+                                        name = entry.name
+
                             writer.writerow([address, name, area_name, unique_id])
                     return self.async_create_entry(
                         title="", data=self.config_entry.options

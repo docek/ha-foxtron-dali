@@ -12,6 +12,7 @@ from custom_components.foxtron_dali.driver import (
     DALI_CMD_OFF,
     DALI_CMD_RECALL_MAX_LEVEL,
 )
+from custom_components.foxtron_dali.const import DOMAIN
 
 
 @pytest.mark.asyncio
@@ -48,7 +49,9 @@ async def test_handle_dali_command_events_updates_state():
     light.async_write_ha_state = MagicMock()
 
     # Recall max level
-    recall_event = DaliCommandEvent(b"", address_byte=2, opcode_byte=DALI_CMD_RECALL_MAX_LEVEL)
+    recall_event = DaliCommandEvent(
+        b"", address_byte=2, opcode_byte=DALI_CMD_RECALL_MAX_LEVEL
+    )
     await light._handle_event(recall_event)
     assert light.is_on is True
     assert light.brightness == 255
@@ -66,3 +69,15 @@ async def test_handle_dali_command_events_updates_state():
     assert light.is_on is True
     expected_brightness = round(level_opcode * 255 / 254)
     assert light.brightness == expected_brightness
+
+
+@pytest.mark.asyncio
+async def test_light_attached_to_bus_device():
+    """Lights share the bus device."""
+    driver = MagicMock()
+    entry = MagicMock()
+    entry.entry_id = "bus1"
+
+    light = DaliLight(driver, address=1, entry=entry, config={})
+
+    assert light.device_info["identifiers"] == {(DOMAIN, "bus1")}

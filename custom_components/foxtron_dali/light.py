@@ -105,11 +105,8 @@ class DaliLight(LightEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information about this device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self.unique_id)},
-            name=self.name,
+            identifiers={(DOMAIN, self._entry.entry_id)},
             manufacturer="Foxtron",
-            via_device=(DOMAIN, self._entry.entry_id),
-            suggested_area=self._config.get("area"),
         )
 
     @property
