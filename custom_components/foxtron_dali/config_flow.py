@@ -7,7 +7,11 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import (
+    area_registry as ar,
+    config_validation as cv,
+    entity_registry as er,
+)
 
 
 from .const import DOMAIN
@@ -168,22 +172,32 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 if not all_addresses:
                     errors["base"] = "no_config"
                 else:
+                    entity_reg = er.async_get(self.hass)
+                    area_reg = ar.async_get(self.hass)
                     with open(file_path, "w", newline="") as f:
                         writer = csv.writer(f)
                         writer.writerow(["dali_address", "name", "area", "unique_id"])
                         for address in all_addresses:
                             cfg = light_config.get(address, {})
-                            writer.writerow(
-                                [
-                                    address,
-                                    cfg.get("name", f"DALI Light {address}"),
-                                    cfg.get("area", ""),
-                                    cfg.get(
-                                        "unique_id",
-                                        f"{self.config_entry.entry_id}_{address}",
-                                    ),
-                                ]
+                            unique_id = cfg.get(
+                                "unique_id", f"{self.config_entry.entry_id}_{address}"
                             )
+                            entity_id = entity_reg.async_get_entity_id(
+                                "light", DOMAIN, unique_id
+                            )
+                            name = cfg.get("name", f"DALI Light {address}")
+                            area_name = cfg.get("area", "")
+                            if entity_id:
+                                entry = entity_reg.async_get(entity_id)
+                                if entry:
+                                    if entry.area_id:
+                                        area = area_reg.async_get_area(entry.area_id)
+                                        if area:
+                                            area_name = area.name
+                                state = self.hass.states.get(entity_id)
+                                if state:
+                                    name = state.name
+                            writer.writerow([address, name, area_name, unique_id])
                     return self.async_create_entry(
                         title="", data=self.config_entry.options
                     )
