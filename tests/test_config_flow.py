@@ -122,6 +122,61 @@ async def test_upload_config_file_not_found(hass, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_backup_config_success(hass, tmp_path):
+    """Test successful backup of light configuration."""
+    backup_path = tmp_path / "backup.csv"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={},
+        options={
+            "light_config": {1: {"name": "Light", "area": "Room", "unique_id": "uid1"}}
+        },
+    )
+    entry.add_to_hass(hass)
+    driver = AsyncMock()
+    driver.scan_for_devices.return_value = [1]
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_backup_config(
+        user_input={"file_path": str(backup_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    lines = backup_path.read_text().splitlines()
+    assert lines == [
+        "dali_address,name,area,unique_id",
+        "1,Light,Room,uid1",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_backup_config_empty(hass, tmp_path):
+    """Test backup handles missing light configuration."""
+    backup_path = tmp_path / "backup.csv"
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    driver = AsyncMock()
+    driver.scan_for_devices.return_value = [1]
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_backup_config(
+        user_input={"file_path": str(backup_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"] == {}
+    lines = backup_path.read_text().splitlines()
+    assert lines == [
+        "dali_address,name,area,unique_id",
+        f"1,DALI Light 1,,{entry.entry_id}_1",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_discover_buttons_merges_options(hass):
     """Test discovered buttons are merged into options."""
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={"buttons": ["1-1"]})
