@@ -215,14 +215,17 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             if entity_id:
                                 entry = entity_reg.async_get(entity_id)
                                 if entry:
+                                    area_id = None
                                     if entry.device_id:
                                         device = device_reg.async_get(entry.device_id)
                                         if device and device.area_id:
-                                            area = area_reg.async_get_area(
-                                                device.area_id
-                                            )
-                                            if area:
-                                                area_name = area.name
+                                            area_id = device.area_id
+                                    if not area_id and entry.area_id:
+                                        area_id = entry.area_id
+                                    if area_id:
+                                        area = area_reg.async_get_area(area_id)
+                                        if area:
+                                            area_name = area.name
                                     state = self.hass.states.get(entity_id)
                                     if state:
                                         name = state.name
