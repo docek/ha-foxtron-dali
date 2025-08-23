@@ -12,6 +12,7 @@ from homeassistant.helpers import (
     config_validation as cv,
     entity_registry as er,
 )
+from homeassistant.components import persistent_notification
 
 
 from .const import DOMAIN
@@ -138,16 +139,47 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             entity_id = entity_reg.async_get_entity_id(
                                 "light", DOMAIN, unique_id
                             )
+                            if not entity_id:
+                                default_uid = f"{self.config_entry.entry_id}_{address}"
+                                entity_id = entity_reg.async_get_entity_id(
+                                    "light", DOMAIN, default_uid
+                                )
                             if entity_id:
                                 area_obj = area_reg.async_get_area_by_name(area)
                                 if area and not area_obj:
                                     area_obj = area_reg.async_get_or_create(area)
                                 area_id = area_obj.id if area_obj else None
-                                entity_reg.async_update_entity(
-                                    entity_id,
-                                    name=name,
-                                    area_id=area_id,
+                                updates = {"name": name, "area_id": area_id}
+                                entry = entity_reg.async_get(entity_id)
+                                if entry and entry.unique_id != unique_id:
+                                    updates["new_unique_id"] = unique_id
+                                entity_reg.async_update_entity(entity_id, **updates)
+
+                        driver = self.hass.data.get(DOMAIN, {}).get(
+                            self.config_entry.entry_id
+                        )
+                        discovered_addresses: set[int] = set()
+                        if driver:
+                            try:
+                                discovered_addresses = set(
+                                    await driver.scan_for_devices()
                                 )
+                            except Exception as err:  # pragma: no cover - best effort
+                                _LOGGER.debug("Device scan failed: %s", err)
+
+                        backup_addresses = set(light_config.keys())
+                        missing = backup_addresses - discovered_addresses
+                        new = discovered_addresses - backup_addresses
+                        if missing or new:
+                            parts = []
+                            if missing:
+                                parts.append(f"Missing lights: {sorted(missing)}")
+                            if new:
+                                parts.append(f"New lights: {sorted(new)}")
+                            message = ". ".join(parts)
+                            persistent_notification.async_create(
+                                self.hass, message, title="Foxtron DALI import"
+                            )
 
                         new_options = self.config_entry.options.copy()
                         new_options["light_config"] = light_config
