@@ -25,7 +25,8 @@
                 "menu_options": {
                     "discover_buttons": "Discover Buttons",
                     "set_fade_time": "Set Fade Time",
-                    "upload_config": "Upload Light Configuration"
+                    "upload_config": "Upload Light Configuration",
+                    "backup_config": "Backup Light Configuration"
                 }
             },
             "discover_buttons": {
@@ -48,12 +49,21 @@
                 "data": {
                     "file_path": "Path to CSV file"
                 }
+            },
+            "backup_config": {
+                "title": "Backup Light Configuration",
+                "description": "Export the current light configuration to a CSV file.",
+                "data": {
+                    "file_path": "Path to save CSV file"
+                }
             }
         },
         "error": {
             "invalid_csv_header": "Invalid CSV header. The header must be: dali_address,name,area,unique_id",
             "file_not_found": "File not found. Please check the path and try again.",
-            "invalid_file": "The uploaded file is not a valid CSV file."
+            "invalid_file": "The uploaded file is not a valid CSV file.",
+            "write_failed": "Failed to write to file. Please check the path and try again.",
+            "no_config": "No light configuration to backup."
         }
     }
 }
