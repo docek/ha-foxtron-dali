@@ -24,8 +24,8 @@
                 "title": "Foxtron DALI Options",
                 "menu_options": {
                     "discover_buttons": "Discover Buttons",
-                    "set_fade_time": "Set Fade Time",
                     "set_event_timing": "Set Event Timing",
+                    "set_fade_time": "Set Fade Time",
                     "upload_config": "Upload Light Configuration",
                     "backup_config": "Backup Light Configuration"
                 }
