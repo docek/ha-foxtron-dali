@@ -55,23 +55,22 @@
             },
             "upload_config": {
                 "title": "Upload Light Configuration",
-                "description": "Upload a CSV file with the following columns: dali_address, name, area, unique_id",
+                "description": "Upload a JSON file mapping DALI addresses to name, area, and unique_id.",
                 "data": {
-                    "file_path": "Path to CSV file"
+                    "file_path": "Path to JSON file"
                 }
             },
             "backup_config": {
                 "title": "Backup Light Configuration",
-                "description": "Export the current light configuration to a CSV file.",
+                "description": "Export the current light configuration to a JSON file.",
                 "data": {
-                    "file_path": "Path to save CSV file"
+                    "file_path": "Path to save JSON file"
                 }
             }
         },
         "error": {
-            "invalid_csv_header": "Invalid CSV header. The header must be: dali_address,name,area,unique_id",
+            "invalid_json": "Invalid JSON file. Expected a mapping of addresses to configuration objects.",
             "file_not_found": "File not found. Please check the path and try again.",
-            "invalid_file": "The uploaded file is not a valid CSV file.",
             "write_failed": "Failed to write to file. Please check the path and try again.",
             "no_config": "No light configuration to backup."
         }

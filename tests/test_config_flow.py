@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import json
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -71,9 +72,11 @@ async def test_user_step_cannot_connect(hass):
 
 @pytest.mark.asyncio
 async def test_upload_config_success(hass, tmp_path):
-    """Test successful CSV upload handling."""
-    csv_path = tmp_path / "lights.csv"
-    csv_path.write_text("dali_address,name,area,unique_id\n1,New Light,Room,uid1\n")
+    """Test successful JSON upload handling."""
+    json_path = tmp_path / "lights.json"
+    json_path.write_text(
+        json.dumps({"1": {"name": "New Light", "area": "Room", "unique_id": "uid1"}})
+    )
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
@@ -97,7 +100,7 @@ async def test_upload_config_success(hass, tmp_path):
     flow.hass = hass
 
     result = await flow.async_step_upload_config(
-        user_input={"file_path": str(csv_path)}
+        user_input={"file_path": str(json_path)}
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -112,8 +115,10 @@ async def test_upload_config_success(hass, tmp_path):
 @pytest.mark.asyncio
 async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
     """Ensure upload renames existing entities instead of creating new ones."""
-    csv_path = tmp_path / "lights.csv"
-    csv_path.write_text("dali_address,name,area,unique_id\n1,New Light,Room,uid1\n")
+    json_path = tmp_path / "lights.json"
+    json_path.write_text(
+        json.dumps({"1": {"name": "New Light", "area": "Room", "unique_id": "uid1"}})
+    )
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
@@ -139,7 +144,7 @@ async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
     flow.hass = hass
 
     result = await flow.async_step_upload_config(
-        user_input={"file_path": str(csv_path)}
+        user_input={"file_path": str(json_path)}
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -156,8 +161,10 @@ async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
 @pytest.mark.asyncio
 async def test_upload_config_mismatch_notification(hass, tmp_path):
     """Notify when backup differs from discovered lights."""
-    csv_path = tmp_path / "lights.csv"
-    csv_path.write_text("dali_address,name,area,unique_id\n1,Light,Room,uid1\n")
+    json_path = tmp_path / "lights.json"
+    json_path.write_text(
+        json.dumps({"1": {"name": "Light", "area": "Room", "unique_id": "uid1"}})
+    )
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
@@ -188,17 +195,17 @@ async def test_upload_config_mismatch_notification(hass, tmp_path):
     with patch(
         "homeassistant.components.persistent_notification.async_create",
     ) as mock_notify:
-        await flow.async_step_upload_config(user_input={"file_path": str(csv_path)})
+        await flow.async_step_upload_config(user_input={"file_path": str(json_path)})
         mock_notify.assert_called_once()
         msg = mock_notify.call_args[0][1]
         assert "New lights" in msg
 
 
 @pytest.mark.asyncio
-async def test_upload_config_bad_header(hass, tmp_path):
-    """Test CSV upload with invalid header."""
-    bad_path = tmp_path / "bad.csv"
-    bad_path.write_text("wrong,header\n")
+async def test_upload_config_invalid_json(hass, tmp_path):
+    """Test JSON upload with invalid content."""
+    bad_path = tmp_path / "bad.json"
+    bad_path.write_text("not a json")
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
@@ -210,13 +217,13 @@ async def test_upload_config_bad_header(hass, tmp_path):
     )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"]["base"] == "invalid_csv_header"
+    assert result["errors"]["base"] == "invalid_json"
 
 
 @pytest.mark.asyncio
 async def test_upload_config_file_not_found(hass, tmp_path):
-    """Test CSV upload with missing file."""
-    missing = tmp_path / "missing.csv"
+    """Test JSON upload with missing file."""
+    missing = tmp_path / "missing.json"
 
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
@@ -232,7 +239,7 @@ async def test_upload_config_file_not_found(hass, tmp_path):
 @pytest.mark.asyncio
 async def test_backup_config_success(hass, tmp_path):
     """Test successful backup of light configuration."""
-    backup_path = tmp_path / "backup.csv"
+    backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={},
@@ -249,17 +256,14 @@ async def test_backup_config_success(hass, tmp_path):
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    lines = backup_path.read_text().splitlines()
-    assert lines == [
-        "dali_address,name,area,unique_id",
-        "1,Light,Room,uid1",
-    ]
+    data = json.loads(backup_path.read_text())
+    assert data == {"1": {"name": "Light", "area": "Room", "unique_id": "uid1"}}
 
 
 @pytest.mark.asyncio
 async def test_backup_config_uses_entity_area(hass, tmp_path):
     """Export uses entity name and entity area."""
-    backup_path = tmp_path / "backup.csv"
+    backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(
         domain=DOMAIN, data={}, options={"light_config": {1: {"unique_id": "uid1"}}}
     )
@@ -290,17 +294,14 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    lines = backup_path.read_text().splitlines()
-    assert lines == [
-        "dali_address,name,area,unique_id",
-        "1,Friendly,Room,uid1",
-    ]
+    data = json.loads(backup_path.read_text())
+    assert data == {"1": {"name": "Friendly", "area": "Room", "unique_id": "uid1"}}
 
 
 @pytest.mark.asyncio
 async def test_backup_config_discovers_devices(hass, tmp_path):
     """Backup uses discovered devices when no config is present."""
-    backup_path = tmp_path / "backup.csv"
+    backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
 
@@ -316,18 +317,17 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    lines = backup_path.read_text().splitlines()
-    assert lines == [
-        "dali_address,name,area,unique_id",
-        f"1,DALI Light 1,,{entry.entry_id}_1",
-        f"2,DALI Light 2,,{entry.entry_id}_2",
-    ]
+    data = json.loads(backup_path.read_text())
+    assert data == {
+        "1": {"name": "DALI Light 1", "area": "", "unique_id": f"{entry.entry_id}_1"},
+        "2": {"name": "DALI Light 2", "area": "", "unique_id": f"{entry.entry_id}_2"},
+    }
 
 
 @pytest.mark.asyncio
 async def test_backup_config_no_config(hass, tmp_path):
     """Backing up with no devices or config returns an error."""
-    backup_path = tmp_path / "backup.csv"
+    backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
     entry.add_to_hass(hass)
 
