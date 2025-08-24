@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Foxtron DALI Home Assistant Integration"
 readme = "README.md"
 authors = ["docek <60971434+docek@users.noreply.github.com>"]
+packages = [{ include = "custom_components/foxtron_dali" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
