@@ -75,7 +75,17 @@ async def test_upload_config_success(hass, tmp_path):
     """Test successful JSON upload handling."""
     json_path = tmp_path / "lights.json"
     json_path.write_text(
-        json.dumps({"1": {"name": "New Light", "area": "Room", "unique_id": "uid1"}})
+        json.dumps(
+            {
+                "1": {
+                    "name": "New Light",
+                    "area": "Room",
+                    "unique_id": "uid1",
+                    "hidden_by": "user",
+                    "disabled_by": "user",
+                }
+            }
+        )
     )
 
     entry = MockConfigEntry(
@@ -107,11 +117,19 @@ async def test_upload_config_success(hass, tmp_path):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["light_config"] == {
-        1: {"name": "New Light", "area": "Room", "unique_id": "uid1"}
+        1: {
+            "name": "New Light",
+            "area": "Room",
+            "unique_id": "uid1",
+            "hidden_by": "user",
+            "disabled_by": "user",
+        }
     }
     entity_entry = entity_reg.async_get(entity.entity_id)
     assert entity_entry.name == "New Light"
     assert entity_entry.area_id == room.id
+    assert entity_entry.hidden_by == er.RegistryEntryHider.USER
+    assert entity_entry.disabled_by == er.RegistryEntryDisabler.USER
 
 
 @pytest.mark.asyncio
@@ -267,7 +285,15 @@ async def test_backup_config_success(hass, tmp_path):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     data = json.loads(backup_path.read_text())
-    assert data == {"1": {"name": "Light", "area": "Room", "unique_id": "uid1"}}
+    assert data == {
+        "1": {
+            "name": "Light",
+            "area": "Room",
+            "unique_id": "uid1",
+            "hidden_by": None,
+            "disabled_by": None,
+        }
+    }
 
 
 @pytest.mark.asyncio
@@ -296,7 +322,13 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
         suggested_object_id="dali_light_1",
         device_id=device.id,
     )
-    entity_reg.async_update_entity(entity.entity_id, name="Friendly", area_id=room.id)
+    entity_reg.async_update_entity(
+        entity.entity_id,
+        name="Friendly",
+        area_id=room.id,
+        hidden_by=er.RegistryEntryHider.USER,
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
@@ -307,7 +339,15 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     data = json.loads(backup_path.read_text())
-    assert data == {"1": {"name": "Friendly", "area": "Room", "unique_id": "uid1"}}
+    assert data == {
+        "1": {
+            "name": "Friendly",
+            "area": "Room",
+            "unique_id": "uid1",
+            "hidden_by": "user",
+            "disabled_by": "user",
+        }
+    }
 
 
 @pytest.mark.asyncio
@@ -337,11 +377,15 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
             "name": "DALI Light 1",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1",
+            "hidden_by": None,
+            "disabled_by": None,
         },
         "2": {
             "name": "DALI Light 2",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_2",
+            "hidden_by": None,
+            "disabled_by": None,
         },
     }
 
