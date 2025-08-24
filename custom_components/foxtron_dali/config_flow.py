@@ -133,6 +133,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         name = cfg.get("name", f"DALI Light {address}")
                         area = cfg.get("area", "")
                         unique_id = cfg.get("unique_id", f"{host}_{port}_{address}")
+                        desired_entity_id = cfg.get("entity_id")
                         light_config[address] = {
                             "name": name,
                             "area": area,
@@ -155,6 +156,13 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             entry = entity_reg.async_get(entity_id)
                             if entry and entry.unique_id != unique_id:
                                 updates["new_unique_id"] = unique_id
+                            if desired_entity_id and desired_entity_id != entity_id:
+                                if entity_reg.async_get(desired_entity_id):
+                                    _LOGGER.warning(
+                                        "Entity ID %s already exists", desired_entity_id
+                                    )
+                                else:
+                                    updates["new_entity_id"] = desired_entity_id
                             entity_reg.async_update_entity(entity_id, **updates)
 
                     driver = self.hass.data.get(DOMAIN, {}).get(
@@ -253,6 +261,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             "name": name,
                             "area": area_name,
                             "unique_id": unique_id,
+                            "entity_id": entity_id,
                         }
 
                     with open(file_path, "w", encoding="utf-8") as f:
