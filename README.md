@@ -43,6 +43,9 @@ After setup, you can adjust additional settings by clicking **CONFIGURE** on the
 
 *   **Default Fade Time:** Sets the default DALI fade time (0-15) for all lights on this bus.
 *   **Discovered Buttons:** This section is used to manage and add newly discovered DALI buttons.
+*   **Light Configuration Import/Export:** Save or restore light names and areas
+    using a JSON file. The default filename is derived from the gateway's IP
+    address and port, and any existing file with that name will be overwritten.
 
 ## Usage
 

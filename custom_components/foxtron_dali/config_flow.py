@@ -15,7 +15,7 @@ from homeassistant.helpers import (
 from homeassistant.components import persistent_notification
 
 
-from .const import DOMAIN, LIGHT_CONFIG_FILE
+from .const import DOMAIN, light_config_filename
 from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
@@ -191,15 +191,14 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 _LOGGER.error("Error processing config file: %s", e)
                 errors["base"] = "invalid_json"
 
+        host = self.config_entry.data[CONF_HOST]
+        port = self.config_entry.data[CONF_PORT]
+        default_path = self.hass.config.path(light_config_filename(host, port))
+
         return self.async_show_form(
             step_id="upload_config",
             data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "file_path",
-                        default=self.hass.config.path(LIGHT_CONFIG_FILE),
-                    ): str,
-                }
+                {vol.Required("file_path", default=default_path): str}
             ),
             errors=errors,
         )
@@ -265,15 +264,14 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 _LOGGER.error("Error writing backup file: %s", err)
                 errors["base"] = "write_failed"
 
+        host = self.config_entry.data[CONF_HOST]
+        port = self.config_entry.data[CONF_PORT]
+        default_path = self.hass.config.path(light_config_filename(host, port))
+
         return self.async_show_form(
             step_id="backup_config",
             data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "file_path",
-                        default=self.hass.config.path(LIGHT_CONFIG_FILE),
-                    ): str
-                }
+                {vol.Required("file_path", default=default_path): str}
             ),
             errors=errors,
         )
