@@ -146,17 +146,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             area_reg = ar.async_get(hass)
             dev_reg = dr.async_get(hass)
 
-            for item in data.values():
-                entity_id = item.get("entity_id")
-                if not entity_id:
-                    unique_id = item.get("unique_id")
-                    entity_id = None
-                    for entry in ent_reg.entities.values():
-                        if entry.platform == DOMAIN and entry.unique_id == unique_id:
-                            entity_id = entry.entity_id
-                            break
+            for address, item in data.items():
+                entity_id = None
+
+                # Locate entity solely by address-derived unique ID
+                for entry in ent_reg.entities.values():
+                    if entry.platform != DOMAIN:
+                        continue
+                    if _extract_address(entry) == address:
+                        entity_id = entry.entity_id
+                        break
+
                 if not entity_id:
                     continue
+
                 updates: dict = {}
                 if name := item.get("name"):
                     updates["name"] = name
@@ -166,10 +169,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         updates["area_id"] = area.id
                 if updates:
                     ent_reg.async_update_entity(entity_id, **updates)
-                device_id = item.get("device_id")
-                device_name = item.get("device_name")
-                if device_id and device_name:
-                    dev_reg.async_update_device(device_id, name=device_name)
+
+                # Update device name using the found entity's device_id
+                if device_name := item.get("device_name"):
+                    reg_entry = ent_reg.async_get(entity_id)
+                    if reg_entry and reg_entry.device_id:
+                        dev_reg.async_update_device(reg_entry.device_id, name=device_name)
 
         hass.services.async_register(DOMAIN, "broadcast_on", handle_broadcast_on)
         hass.services.async_register(DOMAIN, "broadcast_off", handle_broadcast_off)
