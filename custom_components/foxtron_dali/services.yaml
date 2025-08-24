@@ -24,8 +24,7 @@ set_fade_time:
 export_names:
   description: |
     Export DALI address to name mappings to a JSON file.
-    Each entry includes entity ID, unique ID, name, area, device info, and
-    `hidden_by`/`disabled_by` flags.
+    Each entry includes entity ID, unique ID, name, area, and device info.
   fields:
     path:
       description: Optional path within the Home Assistant config directory.
@@ -36,8 +35,7 @@ export_names:
 import_names:
   description: |
     Import DALI address to name mappings from a JSON file created by
-    `export_names`. Restores name, area, device name, and
-    `hidden_by`/`disabled_by` flags for matching entities.
+    `export_names`. Restores name, area, and device name for matching entities.
   fields:
     path:
       description: Optional path within the Home Assistant config directory.
