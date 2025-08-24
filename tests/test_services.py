@@ -83,8 +83,6 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
             "area": "Old Area",
             "device_id": device.id,
             "device_name": "Orig Device",
-            "hidden_by": "user",
-            "disabled_by": "user",
         }
     }
 
@@ -122,5 +120,5 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
     restored = ent_reg.async_get(new_entity.entity_id)
     assert restored.name == "Orig Light"
     assert restored.area_id == area.id
-    assert restored.hidden_by == er.RegistryEntryHider.USER
-    assert restored.disabled_by == er.RegistryEntryDisabler.USER
+    assert restored.hidden_by is None
+    assert restored.disabled_by is None

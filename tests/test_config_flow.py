@@ -81,8 +81,6 @@ async def test_upload_config_success(hass, tmp_path):
                     "name": "New Light",
                     "area": "Room",
                     "unique_id": "uid1",
-                    "hidden_by": "user",
-                    "disabled_by": "user",
                 }
             }
         )
@@ -121,15 +119,13 @@ async def test_upload_config_success(hass, tmp_path):
             "name": "New Light",
             "area": "Room",
             "unique_id": "uid1",
-            "hidden_by": "user",
-            "disabled_by": "user",
         }
     }
     entity_entry = entity_reg.async_get(entity.entity_id)
     assert entity_entry.name == "New Light"
     assert entity_entry.area_id == room.id
-    assert entity_entry.hidden_by == er.RegistryEntryHider.USER
-    assert entity_entry.disabled_by == er.RegistryEntryDisabler.USER
+    assert entity_entry.hidden_by is None
+    assert entity_entry.disabled_by is None
 
 
 @pytest.mark.asyncio
@@ -290,8 +286,6 @@ async def test_backup_config_success(hass, tmp_path):
             "name": "Light",
             "area": "Room",
             "unique_id": "uid1",
-            "hidden_by": None,
-            "disabled_by": None,
         }
     }
 
@@ -326,8 +320,6 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
         entity.entity_id,
         name="Friendly",
         area_id=room.id,
-        hidden_by=er.RegistryEntryHider.USER,
-        disabled_by=er.RegistryEntryDisabler.USER,
     )
 
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
@@ -344,8 +336,6 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
             "name": "Friendly",
             "area": "Room",
             "unique_id": "uid1",
-            "hidden_by": "user",
-            "disabled_by": "user",
         }
     }
 
@@ -377,15 +367,11 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
             "name": "DALI Light 1",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1",
-            "hidden_by": None,
-            "disabled_by": None,
         },
         "2": {
             "name": "DALI Light 2",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_2",
-            "hidden_by": None,
-            "disabled_by": None,
         },
     }
 
