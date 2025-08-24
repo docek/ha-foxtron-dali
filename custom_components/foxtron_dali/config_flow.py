@@ -121,7 +121,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     data = json.load(f)
                     if not isinstance(data, dict):
                         raise ValueError("Invalid JSON structure")
-                    light_config: Dict[int, Dict[str, str]] = {}
+                    light_config: Dict[int, Dict[str, Any]] = {}
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
                     host = self.config_entry.data[CONF_HOST]
@@ -133,11 +133,18 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         name = cfg.get("name", f"DALI Light {address}")
                         area = cfg.get("area", "")
                         unique_id = cfg.get("unique_id", f"{host}_{port}_{address}")
-                        light_config[address] = {
+                        hidden_by = cfg.get("hidden_by")
+                        disabled_by = cfg.get("disabled_by")
+                        light_cfg = {
                             "name": name,
                             "area": area,
                             "unique_id": unique_id,
                         }
+                        if "hidden_by" in cfg:
+                            light_cfg["hidden_by"] = hidden_by
+                        if "disabled_by" in cfg:
+                            light_cfg["disabled_by"] = disabled_by
+                        light_config[address] = light_cfg
                         entity_id = entity_reg.async_get_entity_id(
                             "light", DOMAIN, unique_id
                         )
@@ -152,6 +159,18 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                 area_obj = area_reg.async_get_or_create(area)
                             area_id = area_obj.id if area_obj else None
                             updates = {"name": name, "area_id": area_id}
+                            if "hidden_by" in cfg:
+                                updates["hidden_by"] = (
+                                    er.RegistryEntryHider(hidden_by)
+                                    if hidden_by is not None
+                                    else None
+                                )
+                            if "disabled_by" in cfg:
+                                updates["disabled_by"] = (
+                                    er.RegistryEntryDisabler(disabled_by)
+                                    if disabled_by is not None
+                                    else None
+                                )
                             entry = entity_reg.async_get(entity_id)
                             if entry and entry.unique_id != unique_id:
                                 updates["new_unique_id"] = unique_id
@@ -225,7 +244,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 else:
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
-                    data: Dict[int, Dict[str, str]] = {}
+                    data: Dict[int, Dict[str, Any]] = {}
                     host = self.config_entry.data[CONF_HOST]
                     port = self.config_entry.data[CONF_PORT]
                     for address in all_addresses:
@@ -236,6 +255,8 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         )
                         name = cfg.get("name", f"DALI Light {address}")
                         area_name = cfg.get("area", "")
+                        hidden_by = None
+                        disabled_by = None
                         if entity_id:
                             entry = entity_reg.async_get(entity_id)
                             if entry:
@@ -249,12 +270,21 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                     name = state.name
                                 elif entry.name:
                                     name = entry.name
-
-                        data[address] = {
+                                if entry.hidden_by is not None:
+                                    hidden_by = entry.hidden_by.value
+                                if entry.disabled_by is not None:
+                                    disabled_by = entry.disabled_by.value
+                        entry_data = {
                             "name": name,
                             "area": area_name,
                             "unique_id": unique_id,
                         }
+                        if hidden_by is not None:
+                            entry_data["hidden_by"] = hidden_by
+                        if disabled_by is not None:
+                            entry_data["disabled_by"] = disabled_by
+
+                        data[address] = entry_data
 
                     with open(file_path, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2)
