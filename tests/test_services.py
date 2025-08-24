@@ -24,7 +24,13 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
     entry.add_to_hass(hass)
     hass.config.config_dir = str(tmp_path)
 
-    with patch("custom_components.foxtron_dali.FoxtronDaliDriver") as mock_driver_cls:
+    with (
+        patch("custom_components.foxtron_dali.FoxtronDaliDriver") as mock_driver_cls,
+        patch(
+            "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
         driver = AsyncMock()
         mock_driver_cls.return_value = driver
         await foxtron_dali.async_setup_entry(hass, entry)
