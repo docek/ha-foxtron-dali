@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.const import CONF_HOST, CONF_PORT
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -22,6 +23,7 @@ async def test_async_turn_on_off_sends_dali_levels_and_updates_state():
     driver.set_device_level = AsyncMock()
     entry = MagicMock()
     entry.entry_id = "entry1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
     light = DaliLight(driver, address=1, entry=entry, config={})
     light.async_write_ha_state = MagicMock()
@@ -44,6 +46,7 @@ async def test_handle_dali_command_events_updates_state():
     driver = MagicMock()
     entry = MagicMock()
     entry.entry_id = "entry1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
     light = DaliLight(driver, address=1, entry=entry, config={})
     light.async_write_ha_state = MagicMock()
@@ -77,6 +80,7 @@ async def test_light_attached_to_bus_device():
     driver = MagicMock()
     entry = MagicMock()
     entry.entry_id = "bus1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
     light = DaliLight(driver, address=1, entry=entry, config={})
 

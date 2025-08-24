@@ -78,7 +78,9 @@ async def test_upload_config_success(hass, tmp_path):
         json.dumps({"1": {"name": "New Light", "area": "Room", "unique_id": "uid1"}})
     )
 
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
 
     area_reg = ar.async_get(hass)
@@ -120,7 +122,9 @@ async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
         json.dumps({"1": {"name": "New Light", "area": "Room", "unique_id": "uid1"}})
     )
 
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
 
     area_reg = ar.async_get(hass)
@@ -131,7 +135,7 @@ async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
     )
     # Create entity with default unique ID
-    default_uid = f"{entry.entry_id}_1"
+    default_uid = f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1"
     entity_reg.async_get_or_create(
         "light",
         DOMAIN,
@@ -166,7 +170,9 @@ async def test_upload_config_mismatch_notification(hass, tmp_path):
         json.dumps({"1": {"name": "Light", "area": "Room", "unique_id": "uid1"}})
     )
 
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
 
     area_reg = ar.async_get(hass)
@@ -176,7 +182,7 @@ async def test_upload_config_mismatch_notification(hass, tmp_path):
     device = device_reg.async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
     )
-    default_uid = f"{entry.entry_id}_1"
+    default_uid = f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1"
     entity_reg.async_get_or_create(
         "light",
         DOMAIN,
@@ -207,7 +213,9 @@ async def test_upload_config_invalid_json(hass, tmp_path):
     bad_path = tmp_path / "bad.json"
     bad_path.write_text("not a json")
 
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
@@ -225,7 +233,9 @@ async def test_upload_config_file_not_found(hass, tmp_path):
     """Test JSON upload with missing file."""
     missing = tmp_path / "missing.json"
 
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
     flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
     flow.hass = hass
@@ -242,7 +252,7 @@ async def test_backup_config_success(hass, tmp_path):
     backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(
         domain=DOMAIN,
-        data={},
+        data={CONF_HOST: "1.2.3.4", CONF_PORT: 23},
         options={
             "light_config": {1: {"name": "Light", "area": "Room", "unique_id": "uid1"}}
         },
@@ -265,7 +275,9 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
     """Export uses entity name and entity area."""
     backup_path = tmp_path / "backup.json"
     entry = MockConfigEntry(
-        domain=DOMAIN, data={}, options={"light_config": {1: {"unique_id": "uid1"}}}
+        domain=DOMAIN,
+        data={CONF_HOST: "1.2.3.4", CONF_PORT: 23},
+        options={"light_config": {1: {"unique_id": "uid1"}}},
     )
     entry.add_to_hass(hass)
 
@@ -302,7 +314,9 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
 async def test_backup_config_discovers_devices(hass, tmp_path):
     """Backup uses discovered devices when no config is present."""
     backup_path = tmp_path / "backup.json"
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
 
     driver = AsyncMock()
@@ -319,8 +333,16 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
     assert result["type"] == FlowResultType.CREATE_ENTRY
     data = json.loads(backup_path.read_text())
     assert data == {
-        "1": {"name": "DALI Light 1", "area": "", "unique_id": f"{entry.entry_id}_1"},
-        "2": {"name": "DALI Light 2", "area": "", "unique_id": f"{entry.entry_id}_2"},
+        "1": {
+            "name": "DALI Light 1",
+            "area": "",
+            "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1",
+        },
+        "2": {
+            "name": "DALI Light 2",
+            "area": "",
+            "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_2",
+        },
     }
 
 
@@ -328,7 +350,9 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
 async def test_backup_config_no_config(hass, tmp_path):
     """Backing up with no devices or config returns an error."""
     backup_path = tmp_path / "backup.json"
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
     entry.add_to_hass(hass)
 
     driver = AsyncMock()
@@ -349,7 +373,11 @@ async def test_backup_config_no_config(hass, tmp_path):
 @pytest.mark.asyncio
 async def test_discover_buttons_merges_options(hass):
     """Test discovered buttons are merged into options."""
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={"buttons": ["1-1"]})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_HOST: "1.2.3.4", CONF_PORT: 23},
+        options={"buttons": ["1-1"]},
+    )
     entry.add_to_hass(hass)
 
     driver = MagicMock()

@@ -40,10 +40,11 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
         identifiers={(DOMAIN, "dev1")},
         name="Orig Device",
     )
+    unique_id = "1.2.3.4_23_1"
     entity = ent_reg.async_get_or_create(
         "light",
         DOMAIN,
-        "uid_1",
+        unique_id,
         suggested_object_id="dali_light_1",
         config_entry=entry,
         device_id=device.id,
@@ -71,7 +72,7 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
     assert data == {
         "1": {
             "entity_id": entity.entity_id,
-            "unique_id": "uid_1",
+            "unique_id": unique_id,
             "name": "Orig Light",
             "area": "Old Area",
             "device_id": device.id,
@@ -79,16 +80,31 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
         }
     }
 
-    ent_reg.async_update_entity(entity.entity_id, name="Changed", area_id=None)
-    dev_reg.async_update_device(device.id, name="Changed Device")
+    ent_reg.async_remove(entity.entity_id)
+    entry2 = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
+    entry2.add_to_hass(hass)
+    device2 = dev_reg.async_get_or_create(
+        config_entry_id=entry2.entry_id,
+        identifiers={(DOMAIN, "dev2")},
+        name="New Device",
+    )
+    new_entity = ent_reg.async_get_or_create(
+        "light",
+        DOMAIN,
+        unique_id,
+        suggested_object_id="new_light",
+        config_entry=entry2,
+        device_id=device2.id,
+    )
+    ent_reg.async_update_entity(new_entity.entity_id, name="Changed", area_id=None)
 
     with patch("custom_components.foxtron_dali.storage.Store", FakeStore):
         await hass.services.async_call(
             DOMAIN, "import_names", {"path": file_path}, blocking=True
         )
 
-    restored = ent_reg.async_get(entity.entity_id)
+    restored = ent_reg.async_get(new_entity.entity_id)
     assert restored.name == "Orig Light"
     assert restored.area_id == area.id
-    restored_dev = dev_reg.async_get(device.id)
-    assert restored_dev.name == "Orig Device"
