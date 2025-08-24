@@ -121,6 +121,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     device = dev_reg.async_get(device_id)
                     if device:
                         device_name = device.name_by_user or device.name
+                hidden_by = entry.hidden_by.value if entry.hidden_by else None
+                disabled_by = entry.disabled_by.value if entry.disabled_by else None
                 data[address] = {
                     "entity_id": entry.entity_id,
                     "unique_id": entry.unique_id,
@@ -128,9 +130,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "area": area_name,
                     "device_id": device_id,
                     "device_name": device_name,
-                    "hidden_by": entry.hidden_by,
-                    "disabled_by": entry.disabled_by,
                 }
+                if hidden_by is not None:
+                    data[address]["hidden_by"] = hidden_by
+                if disabled_by is not None:
+                    data[address]["disabled_by"] = disabled_by
 
             store = storage.Store(hass, STORE_VERSION, path)
             await store.async_save(data)
