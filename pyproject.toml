@@ -1,27 +1,33 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
-[project]
+[tool.poetry]
 name = "ha-foxtron-dali"
 version = "0.1.0"
 description = "Foxtron DALI Home Assistant Integration"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "homeassistant",
-    "voluptuous",
-]
+authors = ["docek <60971434+docek@users.noreply.github.com>"]
+packages = [{ include = "custom_components/foxtron_dali" }]
 
-[project.optional-dependencies]
-test = [
-    "pytest",
-    "pytest-homeassistant-custom-component",
-    "pytest-asyncio",
-]
-dev = [
-    "pre-commit",
-]
+[tool.poetry.dependencies]
+python = "^3.11"
+homeassistant = "2023.3.0b3"
+voluptuous = "0.13.1"
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "3.7.1"
+
+[tool.poetry.group.test]
+optional = true
+
+[tool.poetry.group.test.dependencies]
+pytest = "8.0.2"
+pytest-homeassistant-custom-component = "0.13.109"
+pytest-asyncio = "0.23.5"
 
 [tool.mypy]
 python_version = "3.11"
