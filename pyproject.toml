@@ -1,3 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-foxtron-dali"
+version = "0.1.0"
+description = "Foxtron DALI Home Assistant Integration"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "homeassistant",
+    "voluptuous",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-homeassistant-custom-component",
+    "pytest-asyncio",
+]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
