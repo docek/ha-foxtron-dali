@@ -19,6 +19,9 @@ test = [
     "pytest-homeassistant-custom-component",
     "pytest-asyncio",
 ]
+dev = [
+    "pre-commit",
+]
 
 [tool.mypy]
 python_version = "3.11"
