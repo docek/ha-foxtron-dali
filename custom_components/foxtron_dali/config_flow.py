@@ -163,9 +163,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     discovered_addresses: set[int] = set()
                     if driver:
                         try:
-                            discovered_addresses = set(
-                                await driver.scan_for_devices()
-                            )
+                            discovered_addresses = set(await driver.scan_for_devices())
                         except Exception as err:  # pragma: no cover - best effort
                             _LOGGER.debug("Device scan failed: %s", err)
 
