@@ -139,6 +139,8 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             "name": name,
                             "area": area,
                             "unique_id": unique_id,
+                            "hidden_by": hidden_by,
+                            "disabled_by": disabled_by,
                         }
                         if "hidden_by" in cfg:
                             light_config[address]["hidden_by"] = hidden_by
@@ -273,10 +275,13 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                     hidden_by = entry.hidden_by.value
                                 if entry.disabled_by is not None:
                                     disabled_by = entry.disabled_by.value
+
                         data[address] = {
                             "name": name,
                             "area": area_name,
                             "unique_id": unique_id,
+                            "hidden_by": hidden_by,
+                            "disabled_by": disabled_by,
                         }
                         if hidden_by is not None:
                             data[address]["hidden_by"] = hidden_by

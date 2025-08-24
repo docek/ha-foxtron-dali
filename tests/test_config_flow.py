@@ -382,11 +382,15 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
             "name": "DALI Light 1",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1",
+            "hidden_by": None,
+            "disabled_by": None,
         },
         "2": {
             "name": "DALI Light 2",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_2",
+            "hidden_by": None,
+            "disabled_by": None,
         },
     }
 
