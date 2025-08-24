@@ -135,16 +135,15 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         unique_id = cfg.get("unique_id", f"{host}_{port}_{address}")
                         hidden_by = cfg.get("hidden_by")
                         disabled_by = cfg.get("disabled_by")
-                        light_cfg = {
+                        light_config[address] = {
                             "name": name,
                             "area": area,
                             "unique_id": unique_id,
                         }
                         if "hidden_by" in cfg:
-                            light_cfg["hidden_by"] = hidden_by
+                            light_config[address]["hidden_by"] = hidden_by
                         if "disabled_by" in cfg:
-                            light_cfg["disabled_by"] = disabled_by
-                        light_config[address] = light_cfg
+                            light_config[address]["disabled_by"] = disabled_by
                         entity_id = entity_reg.async_get_entity_id(
                             "light", DOMAIN, unique_id
                         )
@@ -274,17 +273,15 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                                     hidden_by = entry.hidden_by.value
                                 if entry.disabled_by is not None:
                                     disabled_by = entry.disabled_by.value
-                        entry_data = {
+                        data[address] = {
                             "name": name,
                             "area": area_name,
                             "unique_id": unique_id,
                         }
                         if hidden_by is not None:
-                            entry_data["hidden_by"] = hidden_by
+                            data[address]["hidden_by"] = hidden_by
                         if disabled_by is not None:
-                            entry_data["disabled_by"] = disabled_by
-
-                        data[address] = entry_data
+                            data[address]["disabled_by"] = disabled_by
 
                     with open(file_path, "w", encoding="utf-8") as f:
                         json.dump(data, f, indent=2)
