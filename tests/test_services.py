@@ -49,7 +49,13 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
         config_entry=entry,
         device_id=device.id,
     )
-    ent_reg.async_update_entity(entity.entity_id, name="Orig Light", area_id=area.id)
+    ent_reg.async_update_entity(
+        entity.entity_id,
+        name="Orig Light",
+        area_id=area.id,
+        hidden_by=er.RegistryEntryHider.USER,
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
 
     class FakeStore:
         def __init__(self, hass, version, key):
@@ -77,6 +83,8 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
             "area": "Old Area",
             "device_id": device.id,
             "device_name": "Orig Device",
+            "hidden_by": "user",
+            "disabled_by": "user",
         }
     }
 
@@ -98,7 +106,13 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
         config_entry=entry2,
         device_id=device2.id,
     )
-    ent_reg.async_update_entity(new_entity.entity_id, name="Changed", area_id=None)
+    ent_reg.async_update_entity(
+        new_entity.entity_id,
+        name="Changed",
+        area_id=None,
+        hidden_by=None,
+        disabled_by=None,
+    )
 
     with patch("custom_components.foxtron_dali.storage.Store", FakeStore):
         await hass.services.async_call(
@@ -108,3 +122,5 @@ async def test_export_import_round_trip(hass, tmp_path, enable_custom_integratio
     restored = ent_reg.async_get(new_entity.entity_id)
     assert restored.name == "Orig Light"
     assert restored.area_id == area.id
+    assert restored.hidden_by == er.RegistryEntryHider.USER
+    assert restored.disabled_by == er.RegistryEntryDisabler.USER
