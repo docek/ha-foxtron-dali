@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import Any, Dict, Optional
-import csv
+import json
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -15,7 +15,7 @@ from homeassistant.helpers import (
 from homeassistant.components import persistent_notification
 
 
-from .const import DOMAIN
+from .const import DOMAIN, LIGHT_CONFIG_FILE
 from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
@@ -117,79 +117,81 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             file_path = user_input["file_path"]
             try:
-                with open(file_path, "r") as f:
-                    reader = csv.reader(f)
-                    header = next(reader)
-                    if header != ["dali_address", "name", "area", "unique_id"]:
-                        errors["base"] = "invalid_csv_header"
-                    else:
-                        light_config = {}
-                        entity_reg = er.async_get(self.hass)
-                        area_reg = ar.async_get(self.hass)
-                        for row in reader:
-                            address = int(row[0])
-                            name = row[1]
-                            area = row[2]
-                            unique_id = row[3]
-                            light_config[address] = {
-                                "name": name,
-                                "area": area,
-                                "unique_id": unique_id,
-                            }
-                            entity_id = entity_reg.async_get_entity_id(
-                                "light", DOMAIN, unique_id
-                            )
-                            if not entity_id:
-                                default_uid = f"{self.config_entry.entry_id}_{address}"
-                                entity_id = entity_reg.async_get_entity_id(
-                                    "light", DOMAIN, default_uid
-                                )
-                            if entity_id:
-                                area_obj = area_reg.async_get_area_by_name(area)
-                                if area and not area_obj:
-                                    area_obj = area_reg.async_get_or_create(area)
-                                area_id = area_obj.id if area_obj else None
-                                updates = {"name": name, "area_id": area_id}
-                                entry = entity_reg.async_get(entity_id)
-                                if entry and entry.unique_id != unique_id:
-                                    updates["new_unique_id"] = unique_id
-                                entity_reg.async_update_entity(entity_id, **updates)
-
-                        driver = self.hass.data.get(DOMAIN, {}).get(
-                            self.config_entry.entry_id
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if not isinstance(data, dict):
+                        raise ValueError("Invalid JSON structure")
+                    light_config: Dict[int, Dict[str, str]] = {}
+                    entity_reg = er.async_get(self.hass)
+                    area_reg = ar.async_get(self.hass)
+                    for addr_str, cfg in data.items():
+                        if not isinstance(cfg, dict):
+                            raise ValueError("Invalid JSON structure")
+                        address = int(addr_str)
+                        name = cfg.get("name", f"DALI Light {address}")
+                        area = cfg.get("area", "")
+                        unique_id = cfg.get(
+                            "unique_id", f"{self.config_entry.entry_id}_{address}"
                         )
-                        discovered_addresses: set[int] = set()
-                        if driver:
-                            try:
-                                discovered_addresses = set(
-                                    await driver.scan_for_devices()
-                                )
-                            except Exception as err:  # pragma: no cover - best effort
-                                _LOGGER.debug("Device scan failed: %s", err)
-
-                        backup_addresses = set(light_config.keys())
-                        missing = backup_addresses - discovered_addresses
-                        new = discovered_addresses - backup_addresses
-                        if missing or new:
-                            parts = []
-                            if missing:
-                                parts.append(f"Missing lights: {sorted(missing)}")
-                            if new:
-                                parts.append(f"New lights: {sorted(new)}")
-                            message = ". ".join(parts)
-                            persistent_notification.async_create(
-                                self.hass, message, title="Foxtron DALI import"
+                        light_config[address] = {
+                            "name": name,
+                            "area": area,
+                            "unique_id": unique_id,
+                        }
+                        entity_id = entity_reg.async_get_entity_id(
+                            "light", DOMAIN, unique_id
+                        )
+                        if not entity_id:
+                            default_uid = f"{self.config_entry.entry_id}_{address}"
+                            entity_id = entity_reg.async_get_entity_id(
+                                "light", DOMAIN, default_uid
                             )
+                        if entity_id:
+                            area_obj = area_reg.async_get_area_by_name(area)
+                            if area and not area_obj:
+                                area_obj = area_reg.async_get_or_create(area)
+                            area_id = area_obj.id if area_obj else None
+                            updates = {"name": name, "area_id": area_id}
+                            entry = entity_reg.async_get(entity_id)
+                            if entry and entry.unique_id != unique_id:
+                                updates["new_unique_id"] = unique_id
+                            entity_reg.async_update_entity(entity_id, **updates)
 
-                        new_options = self.config_entry.options.copy()
-                        new_options["light_config"] = light_config
-                        return self.async_create_entry(title="", data=new_options)
+                    driver = self.hass.data.get(DOMAIN, {}).get(
+                        self.config_entry.entry_id
+                    )
+                    discovered_addresses: set[int] = set()
+                    if driver:
+                        try:
+                            discovered_addresses = set(
+                                await driver.scan_for_devices()
+                            )
+                        except Exception as err:  # pragma: no cover - best effort
+                            _LOGGER.debug("Device scan failed: %s", err)
+
+                    backup_addresses = set(light_config.keys())
+                    missing = backup_addresses - discovered_addresses
+                    new = discovered_addresses - backup_addresses
+                    if missing or new:
+                        parts = []
+                        if missing:
+                            parts.append(f"Missing lights: {sorted(missing)}")
+                        if new:
+                            parts.append(f"New lights: {sorted(new)}")
+                        message = ". ".join(parts)
+                        persistent_notification.async_create(
+                            self.hass, message, title="Foxtron DALI import"
+                        )
+
+                    new_options = self.config_entry.options.copy()
+                    new_options["light_config"] = light_config
+                    return self.async_create_entry(title="", data=new_options)
 
             except FileNotFoundError:
                 errors["base"] = "file_not_found"
-            except Exception as e:
-                _LOGGER.error(f"Error processing config file: {e}")
-                errors["base"] = "invalid_file"
+            except Exception as e:  # pylint: disable=broad-except
+                _LOGGER.error("Error processing config file: %s", e)
+                errors["base"] = "invalid_json"
 
         return self.async_show_form(
             step_id="upload_config",
@@ -197,7 +199,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 {
                     vol.Required(
                         "file_path",
-                        default=self.hass.config.path("light_config.csv"),
+                        default=self.hass.config.path(LIGHT_CONFIG_FILE),
                     ): str,
                 }
             ),
@@ -225,34 +227,39 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 else:
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
-                    with open(file_path, "w", newline="") as f:
-                        writer = csv.writer(f)
-                        writer.writerow(["dali_address", "name", "area", "unique_id"])
-                        for address in all_addresses:
-                            cfg = light_config.get(address, {})
-                            unique_id = cfg.get(
-                                "unique_id", f"{self.config_entry.entry_id}_{address}"
-                            )
-                            entity_id = entity_reg.async_get_entity_id(
-                                "light", DOMAIN, unique_id
-                            )
-                            name = cfg.get("name", f"DALI Light {address}")
-                            area_name = cfg.get("area", "")
-                            if entity_id:
-                                entry = entity_reg.async_get(entity_id)
-                                if entry:
-                                    if entry.area_id:
-                                        area = area_reg.async_get_area(entry.area_id)
-                                        if area:
-                                            area_name = area.name
+                    data: Dict[int, Dict[str, str]] = {}
+                    for address in all_addresses:
+                        cfg = light_config.get(address, {})
+                        unique_id = cfg.get(
+                            "unique_id", f"{self.config_entry.entry_id}_{address}"
+                        )
+                        entity_id = entity_reg.async_get_entity_id(
+                            "light", DOMAIN, unique_id
+                        )
+                        name = cfg.get("name", f"DALI Light {address}")
+                        area_name = cfg.get("area", "")
+                        if entity_id:
+                            entry = entity_reg.async_get(entity_id)
+                            if entry:
+                                if entry.area_id:
+                                    area = area_reg.async_get_area(entry.area_id)
+                                    if area:
+                                        area_name = area.name
 
-                                    state = self.hass.states.get(entity_id)
-                                    if state:
-                                        name = state.name
-                                    elif entry.name:
-                                        name = entry.name
+                                state = self.hass.states.get(entity_id)
+                                if state:
+                                    name = state.name
+                                elif entry.name:
+                                    name = entry.name
 
-                            writer.writerow([address, name, area_name, unique_id])
+                        data[address] = {
+                            "name": name,
+                            "area": area_name,
+                            "unique_id": unique_id,
+                        }
+
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
                     return self.async_create_entry(
                         title="", data=self.config_entry.options
                     )
@@ -266,7 +273,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 {
                     vol.Required(
                         "file_path",
-                        default=self.hass.config.path("light_backup.csv"),
+                        default=self.hass.config.path(LIGHT_CONFIG_FILE),
                     ): str
                 }
             ),
