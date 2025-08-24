@@ -26,7 +26,7 @@ if not hasattr(config_entries, "OptionsFlowWithReload"):
 
     config_entries.OptionsFlowWithReload = OptionsFlowWithReload
 
-from custom_components.foxtron_dali.const import DOMAIN
+from custom_components.foxtron_dali.const import DOMAIN, light_config_filename
 from custom_components.foxtron_dali import config_flow
 
 
@@ -261,6 +261,40 @@ async def test_upload_config_file_not_found(hass, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_default_file_path_includes_host_port_upload(hass):
+    """Default upload path includes bus host and port."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
+    entry.add_to_hass(hass)
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_upload_config()
+
+    assert result["type"] == FlowResultType.FORM
+    default = result["data_schema"]({})["file_path"]
+    assert default == hass.config.path(light_config_filename("1.2.3.4", 23))
+
+
+@pytest.mark.asyncio
+async def test_default_file_path_includes_host_port_backup(hass):
+    """Default backup path includes bus host and port."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
+    entry.add_to_hass(hass)
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_backup_config()
+
+    assert result["type"] == FlowResultType.FORM
+    default = result["data_schema"]({})["file_path"]
+    assert default == hass.config.path(light_config_filename("1.2.3.4", 23))
+
+
+@pytest.mark.asyncio
 async def test_backup_config_success(hass, tmp_path):
     """Test successful backup of light configuration."""
     backup_path = tmp_path / "backup.json"
@@ -398,6 +432,29 @@ async def test_backup_config_no_config(hass, tmp_path):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "no_config"
+
+
+@pytest.mark.asyncio
+async def test_backup_overwrites_existing_file(hass, tmp_path):
+    """Backup should overwrite an existing file."""
+    backup_path = tmp_path / "backup.json"
+    backup_path.write_text("{}")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_HOST: "1.2.3.4", CONF_PORT: 23},
+        options={"light_config": {1: {"unique_id": "uid1"}}},
+    )
+    entry.add_to_hass(hass)
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_backup_config(
+        user_input={"file_path": str(backup_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    data = json.loads(backup_path.read_text())
+    assert data == {"1": {"name": "DALI Light 1", "area": "", "unique_id": "uid1"}}
 
 
 @pytest.mark.asyncio
