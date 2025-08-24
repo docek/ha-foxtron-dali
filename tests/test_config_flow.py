@@ -177,6 +177,60 @@ async def test_upload_config_updates_existing_unique_id(hass, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upload_config_updates_entity_id(hass, tmp_path):
+    """Importing a backup updates the entity_id."""
+    json_path = tmp_path / "lights.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "1": {
+                    "name": "New Light",
+                    "area": "Room",
+                    "unique_id": "uid1",
+                    "entity_id": "light.custom_light",
+                }
+            }
+        )
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_HOST: "1.2.3.4", CONF_PORT: 23}, options={}
+    )
+    entry.add_to_hass(hass)
+
+    area_reg = ar.async_get(hass)
+    room = area_reg.async_get_or_create("Room")
+    entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, entry.entry_id)}
+    )
+    entity_reg.async_get_or_create(
+        "light",
+        DOMAIN,
+        "uid1",
+        suggested_object_id="dali_light_1",
+        device_id=device.id,
+    )
+
+    flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    result = await flow.async_step_upload_config(
+        user_input={"file_path": str(json_path)}
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["light_config"][1]["unique_id"] == "uid1"
+    new_entity_id = entity_reg.async_get_entity_id("light", DOMAIN, "uid1")
+    assert new_entity_id == "light.custom_light"
+    entry_after = entity_reg.async_get(new_entity_id)
+    assert entry_after.name == "New Light"
+    assert entry_after.area_id == room.id
+    assert entity_reg.async_get("light.dali_light_1") is None
+
+
+@pytest.mark.asyncio
 async def test_upload_config_mismatch_notification(hass, tmp_path):
     """Notify when backup differs from discovered lights."""
     json_path = tmp_path / "lights.json"
@@ -320,6 +374,7 @@ async def test_backup_config_success(hass, tmp_path):
             "name": "Light",
             "area": "Room",
             "unique_id": "uid1",
+            "entity_id": None,
         }
     }
 
@@ -370,6 +425,7 @@ async def test_backup_config_uses_entity_area(hass, tmp_path):
             "name": "Friendly",
             "area": "Room",
             "unique_id": "uid1",
+            "entity_id": entity.entity_id,
         }
     }
 
@@ -401,11 +457,13 @@ async def test_backup_config_discovers_devices(hass, tmp_path):
             "name": "DALI Light 1",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_1",
+            "entity_id": None,
         },
         "2": {
             "name": "DALI Light 2",
             "area": "",
             "unique_id": f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_2",
+            "entity_id": None,
         },
     }
 
@@ -454,7 +512,14 @@ async def test_backup_overwrites_existing_file(hass, tmp_path):
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     data = json.loads(backup_path.read_text())
-    assert data == {"1": {"name": "DALI Light 1", "area": "", "unique_id": "uid1"}}
+    assert data == {
+        "1": {
+            "name": "DALI Light 1",
+            "area": "",
+            "unique_id": "uid1",
+            "entity_id": None,
+        }
+    }
 
 
 @pytest.mark.asyncio
