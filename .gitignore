@@ -1,0 +1,13 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# Tooling artifacts
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
