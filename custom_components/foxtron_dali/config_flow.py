@@ -124,15 +124,15 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     light_config: Dict[int, Dict[str, str]] = {}
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
+                    host = self.config_entry.data[CONF_HOST]
+                    port = self.config_entry.data[CONF_PORT]
                     for addr_str, cfg in data.items():
                         if not isinstance(cfg, dict):
                             raise ValueError("Invalid JSON structure")
                         address = int(addr_str)
                         name = cfg.get("name", f"DALI Light {address}")
                         area = cfg.get("area", "")
-                        unique_id = cfg.get(
-                            "unique_id", f"{self.config_entry.entry_id}_{address}"
-                        )
+                        unique_id = cfg.get("unique_id", f"{host}_{port}_{address}")
                         light_config[address] = {
                             "name": name,
                             "area": area,
@@ -142,7 +142,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             "light", DOMAIN, unique_id
                         )
                         if not entity_id:
-                            default_uid = f"{self.config_entry.entry_id}_{address}"
+                            default_uid = f"{host}_{port}_{address}"
                             entity_id = entity_reg.async_get_entity_id(
                                 "light", DOMAIN, default_uid
                             )
@@ -226,11 +226,11 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     entity_reg = er.async_get(self.hass)
                     area_reg = ar.async_get(self.hass)
                     data: Dict[int, Dict[str, str]] = {}
+                    host = self.config_entry.data[CONF_HOST]
+                    port = self.config_entry.data[CONF_PORT]
                     for address in all_addresses:
                         cfg = light_config.get(address, {})
-                        unique_id = cfg.get(
-                            "unique_id", f"{self.config_entry.entry_id}_{address}"
-                        )
+                        unique_id = cfg.get("unique_id", f"{host}_{port}_{address}")
                         entity_id = entity_reg.async_get_entity_id(
                             "light", DOMAIN, unique_id
                         )

@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import logging
-import re
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
@@ -93,9 +92,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         def _extract_address(entry) -> str | None:
             """Extract DALI address from an entity registry entry."""
-            match = re.search(r"_(\d+)$", entry.unique_id)
-            if match:
-                return match.group(1)
+            parts = entry.unique_id.rsplit("_", 1)
+            if len(parts) == 2 and parts[1].isdigit():
+                return parts[1]
             return None
 
         async def handle_export_names(call: ServiceCall) -> None:
@@ -148,14 +147,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             for item in data.values():
                 entity_id = item.get("entity_id")
-                if not entity_id:
+                entry_obj = ent_reg.async_get(entity_id) if entity_id else None
+                if entry_obj is None:
                     unique_id = item.get("unique_id")
-                    entity_id = None
                     for entry in ent_reg.entities.values():
                         if entry.platform == DOMAIN and entry.unique_id == unique_id:
                             entity_id = entry.entity_id
+                            entry_obj = entry
                             break
-                if not entity_id:
+                if entry_obj is None:
                     continue
                 updates: dict = {}
                 if name := item.get("name"):

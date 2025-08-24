@@ -3,6 +3,7 @@ from typing import Any, Optional, Dict, Callable
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -19,24 +20,16 @@ from .driver import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _generate_unique_id(light_config: Dict, discovered_addresses: list) -> Dict:
+def _generate_unique_id(
+    entry: ConfigEntry, light_config: Dict, discovered_addresses: list
+) -> Dict:
     """Generate unique IDs for lights that don't have one."""
-    name_area_counters = {}
     for address in discovered_addresses:
         if address in light_config:
             config = light_config[address]
             if not config.get("unique_id"):
-                name = config.get("name", f"DALI Light {address}")
-                area = config.get("area", "")
-                key = (name, area)
-                if key not in name_area_counters:
-                    name_area_counters[key] = 1
-                else:
-                    name_area_counters[key] += 1
-
                 config["unique_id"] = (
-                    f"light.{area.lower().replace(' ', '_')}_"
-                    f"{name.lower().replace(' ', '_')}_{name_area_counters[key]}"
+                    f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_{address}"
                 )
     return light_config
 
@@ -58,7 +51,7 @@ async def async_setup_entry(
         else:
             await driver.connect()
         discovered_addresses = await driver.scan_for_devices()
-        updated_config = _generate_unique_id(light_config, discovered_addresses)
+        updated_config = _generate_unique_id(entry, light_config, discovered_addresses)
         lights = [
             DaliLight(driver, addr, entry, updated_config.get(addr))
             for addr in discovered_addresses
@@ -99,7 +92,10 @@ class DaliLight(LightEntity):
     @property
     def unique_id(self) -> str:
         """Return a unique ID for the light."""
-        return self._config.get("unique_id", f"{self._entry.entry_id}_{self._address}")
+        return self._config.get(
+            "unique_id",
+            f"{self._entry.data[CONF_HOST]}_{self._entry.data[CONF_PORT]}_{self._address}",
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
