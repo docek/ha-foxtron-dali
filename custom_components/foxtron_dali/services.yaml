@@ -21,24 +21,3 @@ set_fade_time:
           min: 0
           max: 15
 
-export_names:
-  description: |
-    Export DALI address to name mappings to a JSON file.
-    Each entry includes entity ID, unique ID, name, area, and device info.
-  fields:
-    path:
-      description: Optional path within the Home Assistant config directory.
-      example: foxtron_dali_names.json
-      selector:
-        text:
-
-import_names:
-  description: |
-    Import DALI address to name mappings from a JSON file created by
-    `export_names`. Restores name, area, and device name for matching entities.
-  fields:
-    path:
-      description: Optional path within the Home Assistant config directory.
-      example: foxtron_dali_names.json
-      selector:
-        text:

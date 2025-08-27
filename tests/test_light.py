@@ -25,7 +25,7 @@ async def test_async_turn_on_off_sends_dali_levels_and_updates_state():
     entry.entry_id = "entry1"
     entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
-    light = DaliLight(driver, address=1, entry=entry, config={})
+    light = DaliLight(driver, address=1, entry=entry)
     light.async_write_ha_state = MagicMock()
 
     await light.async_turn_on()
@@ -48,7 +48,7 @@ async def test_handle_dali_command_events_updates_state():
     entry.entry_id = "entry1"
     entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
-    light = DaliLight(driver, address=1, entry=entry, config={})
+    light = DaliLight(driver, address=1, entry=entry)
     light.async_write_ha_state = MagicMock()
 
     # Recall max level
@@ -82,6 +82,6 @@ async def test_light_attached_to_bus_device():
     entry.entry_id = "bus1"
     entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
-    light = DaliLight(driver, address=1, entry=entry, config={})
+    light = DaliLight(driver, address=1, entry=entry)
 
     assert light.device_info["identifiers"] == {(DOMAIN, "bus1")}
