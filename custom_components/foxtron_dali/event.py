@@ -131,7 +131,7 @@ class DaliButton(EventEntity):
                     buttons.append(key)
                     new_options = dict(self._entry.options)
                     new_options["buttons"] = buttons
-                    await self.hass.config_entries.async_update_entry(
+                    self.hass.config_entries.async_update_entry(
                         self._entry, options=new_options
                     )
 
