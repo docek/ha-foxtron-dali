@@ -1,6 +1,6 @@
 from pathlib import Path
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant import config_entries
@@ -59,3 +59,18 @@ async def test_user_step_cannot_connect(hass):
 
         assert result["type"] == FlowResultType.FORM
         assert result["errors"]["base"] == "cannot_connect"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_init():
+    """Ensure options flow initializes without error."""
+    entry = MagicMock()
+    entry.options = {}
+    entry.add_update_listener = MagicMock(return_value=MagicMock())
+
+    options_flow = config_flow.FoxtronDaliConfigFlow.async_get_options_flow(entry)
+
+    assert isinstance(options_flow, config_flow.FoxtronDaliOptionsFlowHandler)
+
+    result = await options_flow.async_step_init()
+    assert result["type"] == FlowResultType.MENU

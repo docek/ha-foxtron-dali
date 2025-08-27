@@ -82,6 +82,10 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
 class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
     """Handle an options flow for Foxtron DALI."""
 
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize Foxtron DALI options flow."""
+        self.config_entry = config_entry
+
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
         """Manage the options."""
         # The user sees this menu first when they click "CONFIGURE"
