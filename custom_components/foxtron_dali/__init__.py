@@ -19,9 +19,16 @@ PLATFORMS = [Platform.LIGHT, Platform.EVENT]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Foxtron DALI from a config entry."""
+    # If this is a new entry, copy options from an existing one
+    if not entry.options:
+        for existing in hass.config_entries.async_entries(DOMAIN):
+            if existing.entry_id != entry.entry_id and existing.options:
+                hass.config_entries.async_update_entry(entry, options=existing.options)
+                entry.options = existing.options
+                break
+
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
-    # Get the list of known buttons from the config entry options
     known_buttons = entry.options.get("buttons", [])
     fade_time = entry.options.get("fade_time", 0)
 

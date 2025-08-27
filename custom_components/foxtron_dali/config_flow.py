@@ -86,6 +86,14 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         """Initialize Foxtron DALI options flow."""
         self.config_entry = config_entry
 
+    async def _async_update_all_entries(self, new_options: Dict[str, Any]) -> None:
+        """Update options for all config entries in this domain."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.entry_id == self.config_entry.entry_id:
+                continue
+            self.hass.config_entries.async_update_entry(entry, options=new_options)
+            await self.hass.config_entries.async_reload(entry.entry_id)
+
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
         """Manage the options."""
         # The user sees this menu first when they click "CONFIGURE"
@@ -103,6 +111,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             new_options["long_press_threshold"] = user_input["long_press_threshold"]
             new_options["long_press_repeat"] = user_input["long_press_repeat"]
             new_options["multi_press_window"] = user_input["multi_press_window"]
+            await self._async_update_all_entries(new_options)
             return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(
@@ -139,6 +148,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             # Get all current options and update the fade_time
             new_options = self.config_entry.options.copy()
             new_options["fade_time"] = user_input["fade_time"]
+            await self._async_update_all_entries(new_options)
             return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(

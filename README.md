@@ -47,6 +47,9 @@ After setup, you can adjust additional settings by clicking **CONFIGURE** on the
     using a JSON file. The default filename is derived from the gateway's IP
     address and port, and any existing file with that name will be overwritten.
 
+All options are applied globally. Changing the configuration for one bus updates
+the settings for every configured Foxtron DALI bus.
+
 ## Usage
 
 ### Controlling Lights
