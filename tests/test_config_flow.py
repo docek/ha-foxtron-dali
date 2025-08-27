@@ -74,3 +74,25 @@ async def test_options_flow_init():
 
     result = await options_flow.async_step_init()
     assert result["type"] == FlowResultType.MENU
+
+
+@pytest.mark.asyncio
+async def test_options_update_applies_globally():
+    """Setting options for one entry updates all entries."""
+    hass = MagicMock()
+    hass.config_entries.async_update_entry = MagicMock()
+    hass.config_entries.async_reload = AsyncMock()
+
+    entry1 = MagicMock(entry_id="1", options={})
+    entry2 = MagicMock(entry_id="2", options={})
+    hass.config_entries.async_entries.return_value = [entry1, entry2]
+
+    options_flow = config_flow.FoxtronDaliOptionsFlowHandler(entry1)
+    options_flow.hass = hass
+
+    result = await options_flow.async_step_set_fade_time({"fade_time": 5})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    hass.config_entries.async_update_entry.assert_called_once_with(
+        entry2, options={"fade_time": 5}
+    )
+    hass.config_entries.async_reload.assert_awaited_once_with("2")
