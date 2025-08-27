@@ -60,9 +60,10 @@ class ConfigEntries:
     def __init__(self):
         self.updated: list[tuple[object, dict]] = []
 
-    async def async_update_entry(self, entry, options=None):
+    def async_update_entry(self, entry, options=None):
         entry.options = options or {}
         self.updated.append((entry, entry.options))
+        return True
 
 
 class HomeAssistant:
