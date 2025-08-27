@@ -5,6 +5,7 @@ from typing import Callable
 
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -54,8 +55,11 @@ class DaliButton(EventEntity):
     def __init__(self, entry: ConfigEntry, driver: FoxtronDaliDriver) -> None:
         """Initialize the button event handler."""
         self._driver = driver
+        self._entry = entry
         self._attr_name = "DALI Button Events"
-        self._attr_unique_id = f"{entry.entry_id}_dali_button_events"
+        self._attr_unique_id = (
+            f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_button_events"
+        )
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": f"DALI Bus ({entry.data['host']})",
@@ -101,7 +105,10 @@ class DaliButton(EventEntity):
         if not isinstance(event, DaliInputNotificationEvent):
             return
 
-        if event.address is None:
+        if event.address is None or event.event_code not in (
+            EVENT_BUTTON_PRESSED,
+            EVENT_BUTTON_RELEASED,
+        ):
             return
 
         key = format_button_id(event.address, event.instance_number)
@@ -116,6 +123,18 @@ class DaliButton(EventEntity):
         state.last_event_data = data
 
         if event.event_code == EVENT_BUTTON_PRESSED:
+            if key not in self._driver._known_buttons:
+                _LOGGER.info("Adopting new button %s", key)
+                self._driver.add_known_button(key)
+                buttons = list(self._entry.options.get("buttons", []))
+                if key not in buttons:
+                    buttons.append(key)
+                    new_options = dict(self._entry.options)
+                    new_options["buttons"] = buttons
+                    await self.hass.config_entries.async_update_entry(
+                        self._entry, options=new_options
+                    )
+
             self._trigger_event("button_pressed", data)
 
             if state.finalize_task:
@@ -126,7 +145,7 @@ class DaliButton(EventEntity):
                 self._handle_long_press(key)
             )
 
-        elif event.event_code == EVENT_BUTTON_RELEASED:
+        else:  # EVENT_BUTTON_RELEASED
             self._trigger_event("button_released", data)
 
             if state.long_press_task:
@@ -142,9 +161,6 @@ class DaliButton(EventEntity):
                 state.finalize_task = self.hass.async_create_task(
                     self._finalize_presses(key)
                 )
-
-        else:
-            return
 
     async def _handle_long_press(self, key: str) -> None:
         """Handle long press start and repeat events for a button."""

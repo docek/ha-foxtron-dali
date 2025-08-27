@@ -54,11 +54,23 @@ class EventEntity:
         return None
 
 
+class ConfigEntries:
+    """Stub for hass.config_entries."""
+
+    def __init__(self):
+        self.updated: list[tuple[object, dict]] = []
+
+    async def async_update_entry(self, entry, options=None):
+        entry.options = options or {}
+        self.updated.append((entry, entry.options))
+
+
 class HomeAssistant:
     """Minimal HomeAssistant implementation."""
 
     def __init__(self):
         self.loop = asyncio.get_event_loop()
+        self.config_entries = ConfigEntries()
 
     def async_create_task(self, coro):
         return self.loop.create_task(coro)
@@ -105,6 +117,9 @@ if TYPE_CHECKING:
 class MockDriver:
     """Minimal driver used for testing DaliButton."""
 
+    def __init__(self):
+        self._known_buttons: set[str] = set()
+
     def add_event_listener(self, callback):
         self._callback = callback
 
@@ -119,6 +134,9 @@ class MockDriver:
             if asyncio.iscoroutine(result):
                 await result
 
+    def add_known_button(self, button_id: str):
+        self._known_buttons.add(button_id)
+
 
 def _make_event(code: int) -> "_DINEvent":
     """Helper to create a DaliInputNotificationEvent with a fixed address."""
@@ -131,7 +149,7 @@ async def button():
     hass = HomeAssistant()
     entry = MagicMock()
     entry.entry_id = "entry"
-    entry.data = {"host": "test"}
+    entry.data = {"host": "test", "port": 23}
     entry.options = {}
     driver = MockDriver()
     button = DaliButton(entry, driver)
@@ -232,3 +250,24 @@ async def test_ignores_other_events(button, monkeypatch):
 
     await button._handle_event(_make_event(EVENT_LONG_PRESS_START))
     assert events == []
+
+
+@pytest.mark.asyncio
+async def test_auto_adopts_button():
+    hass = HomeAssistant()
+    entry = MagicMock()
+    entry.entry_id = "entry"
+    entry.data = {"host": "test", "port": 23}
+    entry.options = {}
+    driver = MockDriver()
+    button = DaliButton(entry, driver)
+    button.hass = hass
+    await button.async_added_to_hass()
+    button._multi_press_window = 0.01
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await asyncio.sleep(0.02)
+    assert "1-1" in driver._known_buttons
+    assert entry.options["buttons"] == ["1-1"]
+    assert button.unique_id == "test_23_button_events"
+    await button.async_will_remove_from_hass()
