@@ -42,7 +42,7 @@ When you first add the integration, you will be prompted for the following:
 After setup, you can adjust additional settings by clicking **CONFIGURE** on the integration card:
 
 *   **Default Fade Time:** Sets the default DALI fade time (0-15) for all lights on this bus.
-*   **Discovered Buttons:** This section is used to manage and add newly discovered DALI buttons.
+*   **Button Event Timing:** Adjust thresholds for multi-press and long-press detection.
 *   **Light Configuration Import/Export:** Save or restore light names and areas
     using a JSON file. The default filename is derived from the gateway's IP
     address and port, and any existing file with that name will be overwritten.
@@ -59,30 +59,9 @@ The integration listens for brightness commands on the DALI bus. When a light le
 
 ### Using DALI Buttons
 
-Unlike lights, DALI buttons are not actively scanned. They are discovered when they send an event. The process is as follows:
+DALI buttons are discovered passively when they send an event. Press a button once and the integration automatically adopts it and stores it in the configuration.
 
-**1. Discovery**
-
-To discover a new button, you must physically press it. When you do, the button sends an "Input Notification" event on the DALI bus, which the integration detects.
-
-**2. Adopting the Button**
-
-Once a new button is detected, a persistent notification will appear in your Home Assistant dashboard.
-
-> **New DALI buttons discovered**
-> The Foxtron DALI integration has discovered new buttons. Please go to the integration's configuration to add them.
-
-To add the button:
-1.  Go to **Settings > Devices & Services**.
-2.  Find the Foxtron DALI integration card and click **CONFIGURE**.
-3.  A list of newly discovered button IDs (formatted as `address-instance`) will be shown.
-4.  Select the button(s) you wish to add and click **Submit**.
-
-**3. Using the Button in Automations**
-
-Adding a button creates an `event` entity in Home Assistant. This entity does not have a state (like on/off) but acts as a source for events in your automations.
-
-You can trigger automations using the `dali_event` event type.
+Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `dali_event` event type. Event data includes the `button_id` (formatted as `address-instance`) and the specific `event_type` such as `short_press` or `long_press_start`.
 
 Here is an example automation that turns on a light with a short press of a DALI button:
 
@@ -93,8 +72,8 @@ automation:
       - platform: event
         event_type: dali_event
         event_data:
-          # Unique ID of the integration entry and button identifier
-          unique_id: "YOUR_CONFIG_ENTRY_ID"
+          # Unique ID of the bus and button identifier
+          unique_id: "192.168.1.50_23_button_events"
           button_id: "56-1"
           # This is the specific button action you want to react to.
           event_type: "short_press"
