@@ -79,18 +79,16 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
         )
 
 
-class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
+class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
     """Handle an options flow for Foxtron DALI."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize Foxtron DALI options flow."""
-        self.config_entry = config_entry
+        super().__init__(config_entry=config_entry)
 
     async def _async_update_all_entries(self, new_options: Dict[str, Any]) -> None:
         """Update options for all config entries in this domain."""
         for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.entry_id == self.config_entry.entry_id:
-                continue
             self.hass.config_entries.async_update_entry(entry, options=new_options)
             await self.hass.config_entries.async_reload(entry.entry_id)
 

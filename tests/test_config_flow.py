@@ -1,6 +1,6 @@
 from pathlib import Path
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch, call
 
 import pytest
 from homeassistant import config_entries
@@ -92,7 +92,12 @@ async def test_options_update_applies_globally():
 
     result = await options_flow.async_step_set_fade_time({"fade_time": 5})
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    hass.config_entries.async_update_entry.assert_called_once_with(
+    hass.config_entries.async_update_entry.assert_any_call(
+        entry1, options={"fade_time": 5}
+    )
+    hass.config_entries.async_update_entry.assert_any_call(
         entry2, options={"fade_time": 5}
     )
-    hass.config_entries.async_reload.assert_awaited_once_with("2")
+    hass.config_entries.async_reload.assert_has_awaits(
+        [call("1"), call("2")], any_order=True
+    )
