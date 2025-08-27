@@ -19,7 +19,6 @@ FoxtronMessage = driver.FoxtronMessage
 FoxtronDaliDriver = driver.FoxtronDaliDriver
 DaliCommandEvent = driver.DaliCommandEvent
 DaliInputNotificationEvent = driver.DaliInputNotificationEvent
-format_button_id = driver.format_button_id
 MSG_TYPE_DALI_EVENT_NO_ANSWER = driver.MSG_TYPE_DALI_EVENT_NO_ANSWER
 EVENT_BUTTON_PRESSED = driver.EVENT_BUTTON_PRESSED
 
@@ -33,8 +32,8 @@ def test_calculate_checksum_and_build_frame():
     assert FoxtronMessage.build_frame(payload) == expected_frame
 
 
-def test_parse_and_queue_message_events_and_button_cache():
-    """Feed sample frames and ensure events are queued and buttons cached."""
+def test_parse_and_queue_message_events():
+    """Feed sample frames and ensure events are queued."""
 
     async def run_test():
         driver_instance = FoxtronDaliDriver("host", 1234)
@@ -57,8 +56,5 @@ def test_parse_and_queue_message_events_and_button_cache():
         assert isinstance(input_event, DaliInputNotificationEvent)
         assert input_event.address == 5
         assert input_event.instance_number == 1
-
-        expected_button_id = format_button_id(5, 1)
-        assert expected_button_id in driver_instance._newly_discovered_buttons
 
     asyncio.run(run_test())
