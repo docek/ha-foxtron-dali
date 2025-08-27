@@ -100,6 +100,14 @@ class DaliButton(EventEntity):
             self._unsub()
         await super().async_will_remove_from_hass()
 
+    def _trigger_event(
+        self, event_type: str, event_attributes: dict | None = None
+    ) -> None:
+        """Fire both entity and Home Assistant bus events."""
+        super()._trigger_event(event_type, event_attributes)
+        if getattr(self.hass, "bus", None):
+            self.hass.bus.async_fire(f"{DOMAIN}_{event_type}", event_attributes or {})
+
     async def _handle_event(self, event) -> None:
         """Process a single event from the DALI driver."""
         if not isinstance(event, DaliInputNotificationEvent):

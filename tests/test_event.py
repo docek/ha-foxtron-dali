@@ -66,12 +66,23 @@ class ConfigEntries:
         return True
 
 
+class Bus:
+    """Simple event bus collecting fired events."""
+
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def async_fire(self, event_type: str, event_data: dict | None = None) -> None:
+        self.events.append((event_type, event_data or {}))
+
+
 class HomeAssistant:
     """Minimal HomeAssistant implementation."""
 
     def __init__(self):
         self.loop = asyncio.get_event_loop()
         self.config_entries = ConfigEntries()
+        self.bus = Bus()
 
     def async_create_task(self, coro):
         return self.loop.create_task(coro)
@@ -272,3 +283,21 @@ async def test_auto_adopts_button():
     assert entry.options["buttons"] == ["1-1"]
     assert button.unique_id == "test_23_button_events"
     await button.async_will_remove_from_hass()
+
+
+@pytest.mark.asyncio
+async def test_fires_hass_event(button):
+    """Ensure events are fired on Home Assistant's event bus."""
+    button._multi_press_window = 0.01
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await asyncio.sleep(0.02)
+    assert (
+        "foxtron_dali_button_pressed",
+        {
+            "button_id": "1-1",
+            "address": 1,
+            "address_type": "Short",
+            "instance_number": 1,
+        },
+    ) in button.hass.bus.events
