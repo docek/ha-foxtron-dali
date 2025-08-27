@@ -23,18 +23,10 @@
             "init": {
                 "title": "Foxtron DALI Options",
                 "menu_options": {
-                    "discover_buttons": "Discover Buttons",
                     "set_event_timing": "Set Event Timing",
                     "set_fade_time": "Set Fade Time",
                     "upload_config": "Upload Light Configuration",
                     "backup_config": "Backup Light Configuration"
-                }
-            },
-            "discover_buttons": {
-                "title": "Discover Buttons",
-                "description": "No new buttons have been discovered on this DALI bus. To discover buttons, physically press them. They will then appear here. Click SUBMIT to refresh the list after pressing them.",
-                "data": {
-                    "buttons": "Select buttons to add"
                 }
             },
             "set_fade_time": {

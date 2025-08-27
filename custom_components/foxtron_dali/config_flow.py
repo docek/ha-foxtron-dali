@@ -6,11 +6,10 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
 
 
 from .const import DOMAIN
-from .driver import FoxtronDaliDriver, format_button_id, parse_button_id
+from .driver import FoxtronDaliDriver
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
     DEFAULT_LONG_PRESS_REPEAT,
@@ -86,15 +85,13 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self.config_entry = config_entry
-        # Use a dictionary for the discovered buttons { "addr_str": "name_str" }
-        self.discovered_buttons: Dict[str, str] = {}
 
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
         """Manage the options."""
         # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["discover_buttons", "set_fade_time", "set_event_timing"],
+            menu_options=["set_fade_time", "set_event_timing"],
         )
 
     async def async_step_set_event_timing(
@@ -130,77 +127,6 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                             "multi_press_window", DEFAULT_MULTI_PRESS_WINDOW
                         ),
                     ): vol.Coerce(float),
-                }
-            ),
-        )
-
-    async def async_step_discover_buttons(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ):
-        """Handle the button discovery and adoption step."""
-        driver: FoxtronDaliDriver = self.hass.data[DOMAIN][self.config_entry.entry_id]
-
-        # No active scan is performed here. Buttons are discovered passively
-        # when they send DALI-2 input events. Users should press the buttons
-        # they wish to add before refreshing this form.
-
-        # This block runs when the user clicks SUBMIT on the form
-        if user_input is not None:
-            # Get the list of buttons already in the config
-            existing_buttons = [
-                btn if isinstance(btn, str) else format_button_id(*btn)
-                for btn in self.config_entry.options.get("buttons", [])
-            ]
-
-            # Get the list of newly selected buttons from the form
-            selected_buttons = user_input.get("buttons", [])
-
-            # Combine the old and new lists and remove any duplicates
-            all_buttons = sorted(set(existing_buttons + selected_buttons))
-
-            # Tell the driver that these buttons are now known
-            for button_id in selected_buttons:
-                driver.add_known_button(button_id)
-
-            # Clear the driver's cache of newly discovered buttons
-            driver.clear_newly_discovered_buttons()
-
-            # Create a new options dictionary with the updated button list
-            new_options = self.config_entry.options.copy()
-            new_options["buttons"] = all_buttons
-
-            # Save the updated options to the config entry
-            return self.async_create_entry(title="", data=new_options)
-
-        # This block runs when the form is first shown
-        # Get the list of buttons the driver has seen but are not yet configured
-        newly_discovered = driver.get_newly_discovered_buttons()
-
-        # Format them for the multi-select list: { "addr-inst": "Button Name" }
-        self.discovered_buttons = {
-            btn_id: f"DALI Button {addr} (inst {inst})"
-            for btn_id in newly_discovered
-            for addr, inst in [parse_button_id(btn_id)]
-        }
-
-        # If no new buttons have been seen, show an informational message.
-        if not self.discovered_buttons:
-            return self.async_show_form(
-                step_id="discover_buttons",
-                # An empty schema will just show the description and a submit button.
-                data_schema=vol.Schema({}),
-            )
-
-        # If new buttons are found, show the form with the list of buttons.
-        return self.async_show_form(
-            step_id="discover_buttons",
-            data_schema=vol.Schema(
-                {
-                    # Create a multi-select box. Default to nothing selected.
-                    vol.Optional(
-                        "buttons",
-                        default=[],
-                    ): cv.multi_select(self.discovered_buttons),
                 }
             ),
         )
