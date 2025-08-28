@@ -125,6 +125,7 @@ class DaliButton(EventEntity):
             "address": event.address,
             "address_type": event.address_type,
             "instance_number": event.instance_number,
+            "unique_id": self._attr_unique_id,
         }
 
         state = self._button_states.setdefault(key, _ButtonState())

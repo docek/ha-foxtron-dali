@@ -64,7 +64,7 @@ The integration listens for brightness commands on the DALI bus. When a light le
 
 DALI buttons are discovered passively when they send an event. Press a button once and the integration automatically adopts it and stores it in the configuration.
 
-Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `dali_event` event type. Event data includes the `button_id` (formatted as `address-instance`) and the specific `event_type` such as `short_press` or `long_press_start`.
+Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `dali_event` event type. Event data includes the `button_id` (formatted as `address-instance`), the gateway `unique_id` (derived from the host and port), and the specific `event_type` such as `short_press` or `long_press_start`.
 
 Here is an example automation that turns on a light with a short press of a DALI button:
 
