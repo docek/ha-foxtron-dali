@@ -192,6 +192,7 @@ async def test_button_pressed_and_short_press(button, monkeypatch):
             "address": 1,
             "address_type": "Short",
             "instance_number": 1,
+            "unique_id": "test_23_button_events",
         },
     )
     assert events[1][0] == "button_released"
@@ -299,5 +300,6 @@ async def test_fires_hass_event(button):
             "address": 1,
             "address_type": "Short",
             "instance_number": 1,
+            "unique_id": "test_23_button_events",
         },
     ) in button.hass.bus.events
