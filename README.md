@@ -8,7 +8,7 @@ It communicates with the Foxtron DALI gateways using a proprietary ASCII-based p
 
 *   **Light Discovery & Control:** Automatically discovers DALI control gear (lights) on the bus. They appear as standard Home Assistant `light` entities, supporting brightness control.
 *   **Push-Based State Updates:** Light entities listen for DALI commands on the bus and update instantly without polling.
-*   **Button Event Discovery & Integration:** Discovers DALI-2 input devices (like the Foxtron DALI4SW) when they are pressed. These are exposed as `event` entities for use in automations.
+*   **Button Event Integration:** Listens for DALI-2 input device events (like the Foxtron DALI4SW) and exposes them as `event` entities for use in automations.
 *   **Global Services:** Provides services to send broadcast commands (`broadcast_on`, `broadcast_off`) to all lights on a DALI bus.
 *   **Configurable Fade Time:** Allows setting the DALI fade time via the integration options or a service call.
 *   **Multi-Gateway Support:** Supports both single-bus (DALInet) and dual-bus (DALI2net) gateways.
@@ -62,7 +62,7 @@ The integration listens for brightness commands on the DALI bus. When a light le
 
 ### Using DALI Buttons
 
-DALI buttons are discovered passively when they send an event. Press a button once and the integration automatically adopts it and stores it in the configuration.
+DALI buttons generate events on the bus whenever they are pressed. The integration forwards these events to Home Assistant without storing any button configuration.
 
 Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `dali_event` event type. Event data includes the `button_id` (formatted as `address-instance`), the gateway `unique_id` (derived from the host and port), and the specific `event_type` such as `short_press` or `long_press_start`.
 

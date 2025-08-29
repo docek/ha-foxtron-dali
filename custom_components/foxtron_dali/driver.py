@@ -510,7 +510,6 @@ class FoxtronDaliDriver:
         self,
         host: str,
         port: int = 23,
-        known_buttons: Optional[List] = None,
         keep_alive_interval: int = KEEP_ALIVE_INTERVAL,
     ):
         """Initializes the FoxtronDaliDriver.
@@ -518,8 +517,6 @@ class FoxtronDaliDriver:
         Args:
             host: The IP address of the Foxtron gateway.
             port: The TCP port for the specific DALI bus (23 or 24).
-            known_buttons: An optional list of button IDs ("addr-inst")
-                           for buttons already configured.
         """
         self._log = _LOGGER.getChild(f"{host}:{port}")
         self._connection = FoxtronConnection(
@@ -535,15 +532,6 @@ class FoxtronDaliDriver:
         self._pending_config_queries: Dict[int, asyncio.Future] = {}
         self._pending_dali_queries: Dict[bytes, asyncio.Future] = {}
         self._query_lock = asyncio.Lock()
-
-        # This set holds all buttons the integration knows about as
-        # unique identifiers "address-instance".
-        self._known_buttons: set[str] = {
-            f"{int(btn[0])}-{int(btn[1])}"
-            if isinstance(btn, (list, tuple))
-            else str(btn)
-            for btn in (known_buttons or [])
-        }
 
         # Cache for results of bus scanning to avoid repeated full scans
         self._scan_cache: Optional[List[int]] = None
@@ -704,10 +692,6 @@ class FoxtronDaliDriver:
                         ),
                     )
                     return
-                if event.address_type == "Short" and event.address is not None:
-                    key = format_button_id(event.address, event.instance_number)
-                    if key in self._known_buttons:
-                        self._log.debug("Input event from known button %s", key)
 
             # Add the parsed event to the queue for the application to process
             await self._event_queue.put(event)
@@ -1088,7 +1072,3 @@ class FoxtronDaliDriver:
             # The upper byte is the major version, lower byte is the minor.
             return f"{raw_version >> 8}.{raw_version & 0xFF}"
         return None
-
-    def add_known_button(self, button_id: str):
-        """Add a button ID to the set of known devices."""
-        self._known_buttons.add(button_id)

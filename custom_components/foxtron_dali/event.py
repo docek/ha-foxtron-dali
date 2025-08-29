@@ -133,18 +133,6 @@ class DaliButton(EventEntity):
         state.last_event_data = data
 
         if event.event_code == EVENT_BUTTON_PRESSED:
-            if key not in self._driver._known_buttons:
-                self._log.info("Adopting new button %s", key)
-                self._driver.add_known_button(key)
-                buttons = list(self._entry.options.get("buttons", []))
-                if key not in buttons:
-                    buttons.append(key)
-                    new_options = dict(self._entry.options)
-                    new_options["buttons"] = buttons
-                    self.hass.config_entries.async_update_entry(
-                        self._entry, options=new_options
-                    )
-
             self._trigger_event("button_pressed", data)
 
             if state.finalize_task:
