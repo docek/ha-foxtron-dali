@@ -129,8 +129,8 @@ if TYPE_CHECKING:
 class MockDriver:
     """Minimal driver used for testing DaliButton."""
 
-    def __init__(self):
-        self._known_buttons: set[str] = set()
+    def __init__(self) -> None:
+        self._callback = None
 
     def add_event_listener(self, callback):
         self._callback = callback
@@ -145,9 +145,6 @@ class MockDriver:
             result = self._callback(event)
             if asyncio.iscoroutine(result):
                 await result
-
-    def add_known_button(self, button_id: str):
-        self._known_buttons.add(button_id)
 
 
 def _make_event(code: int) -> "_DINEvent":
@@ -266,7 +263,7 @@ async def test_ignores_other_events(button, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_auto_adopts_button():
+async def test_button_event_does_not_store_options():
     hass = HomeAssistant()
     entry = MagicMock()
     entry.entry_id = "entry"
@@ -280,8 +277,7 @@ async def test_auto_adopts_button():
     await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
     await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
     await asyncio.sleep(0.02)
-    assert "1-1" in driver._known_buttons
-    assert entry.options["buttons"] == ["1-1"]
+    assert entry.options == {}
     assert button.unique_id == "test_23_button_events"
     await button.async_will_remove_from_hass()
 

@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -17,8 +16,6 @@ from .driver import (
     EVENT_BUTTON_RELEASED,
     format_button_id,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 # Default timing constants (in seconds)
 DEFAULT_LONG_PRESS_THRESHOLD = 0.2
@@ -132,18 +129,6 @@ class DaliButton(EventEntity):
         state.last_event_data = data
 
         if event.event_code == EVENT_BUTTON_PRESSED:
-            if key not in self._driver._known_buttons:
-                _LOGGER.info("Adopting new button %s", key)
-                self._driver.add_known_button(key)
-                buttons = list(self._entry.options.get("buttons", []))
-                if key not in buttons:
-                    buttons.append(key)
-                    new_options = dict(self._entry.options)
-                    new_options["buttons"] = buttons
-                    self.hass.config_entries.async_update_entry(
-                        self._entry, options=new_options
-                    )
-
             self._trigger_event("button_pressed", data)
 
             if state.finalize_task:

@@ -29,10 +29,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
-    known_buttons = entry.options.get("buttons", [])
     fade_time = entry.options.get("fade_time", 0)
 
-    driver = FoxtronDaliDriver(host, port, known_buttons)
+    driver = FoxtronDaliDriver(host, port)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
 
