@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -16,6 +17,8 @@ from .driver import (
     EVENT_BUTTON_RELEASED,
     format_button_id,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 # Default timing constants (in seconds)
 DEFAULT_LONG_PRESS_THRESHOLD = 0.2
@@ -53,6 +56,7 @@ class DaliButton(EventEntity):
         """Initialize the button event handler."""
         self._driver = driver
         self._entry = entry
+        self._log = _LOGGER.getChild(f"{entry.data[CONF_HOST]}:{entry.data[CONF_PORT]}")
         self._attr_name = "DALI Button Events"
         self._attr_unique_id = (
             f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_button_events"

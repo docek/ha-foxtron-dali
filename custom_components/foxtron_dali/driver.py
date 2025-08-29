@@ -342,6 +342,7 @@ class FoxtronConnection:
         """Initializes the FoxtronConnection."""
         self._host = host
         self._port = port
+        self._log = _LOGGER.getChild(f"{host}:{port}")
         self._on_message_callback = on_message_callback
         self._on_disconnect_callback = on_disconnect_callback
         self._keep_alive_interval = keep_alive_interval
@@ -360,26 +361,26 @@ class FoxtronConnection:
         """Establishes a connection to the gateway and starts background tasks."""
         if self._is_connected:
             return
-        _LOGGER.info(f"Connecting to Foxtron gateway at {self._host}:{self._port}")
+        self._log.info(f"Connecting to Foxtron gateway at {self._host}:{self._port}")
         try:
             self._reader, self._writer = await asyncio.open_connection(
                 self._host, self._port
             )
             self._is_connected = True
             self._reconnect_delay = 1  # Reset reconnect delay on successful connection
-            _LOGGER.info("Connection established.")
+            self._log.info("Connection established.")
             # Start the background tasks for reading and sending keep-alives
             self._receive_task = asyncio.create_task(self._read_loop())
             self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
         except (ConnectionRefusedError, OSError) as e:
-            _LOGGER.error(f"Failed to connect to {self._host}:{self._port}: {e}")
+            self._log.error(f"Failed to connect to {self._host}:{self._port}: {e}")
             await self._handle_disconnect()
 
     async def disconnect(self):
         """Gracefully disconnects from the gateway and cleans up tasks."""
         if not self._is_connected:
             return
-        _LOGGER.info("Disconnecting from gateway.")
+        self._log.info("Disconnecting from gateway.")
         self._is_connected = False
         # Cancel and await the background tasks
         for task in [self._keep_alive_task, self._receive_task]:
@@ -414,7 +415,7 @@ class FoxtronConnection:
         """
         if not self._is_connected or not self._writer:
             raise ConnectionError("Cannot send frame, not connected.")
-        _LOGGER.debug(f"Sending frame: {frame!r}")
+        self._log.debug(f"Sending frame: {frame!r}")
         self._writer.write(frame)
         await self._writer.drain()
 
@@ -423,15 +424,15 @@ class FoxtronConnection:
         while self._is_connected:
             try:
                 await asyncio.sleep(self._keep_alive_interval)
-                _LOGGER.debug("Sending keep-alive frame.")
+                self._log.debug("Sending keep-alive frame.")
                 await self.send_frame(self._keep_alive_frame)
             except asyncio.CancelledError:
                 break  # Task was cancelled, exit loop
             except Exception as e:
-                _LOGGER.error(f"Error in keep-alive loop: {e}")
+                self._log.error(f"Error in keep-alive loop: {e}")
                 await self._handle_disconnect()
                 break
-        _LOGGER.debug("Keep-alive loop terminated.")
+        self._log.debug("Keep-alive loop terminated.")
 
     async def _read_loop(self):
         """Continuously reads from the TCP socket and processes incoming frames."""
@@ -441,7 +442,7 @@ class FoxtronConnection:
                 # Read a chunk of data
                 data = await self._reader.read(1024)
                 if not data:
-                    _LOGGER.warning("Connection closed by peer.")
+                    self._log.warning("Connection closed by peer.")
                     await self._handle_disconnect()
                     break
 
@@ -465,7 +466,9 @@ class FoxtronConnection:
                     if len(frame_content) % 2 != 0 or any(
                         c not in b"0123456789ABCDEFabcdef" for c in frame_content
                     ):
-                        _LOGGER.warning(f"Discarding non-hex frame: {frame_content!r}")
+                        self._log.warning(
+                            f"Discarding non-hex frame: {frame_content!r}"
+                        )
                         buffer = buffer[etb_index + 1 :]
                         continue
 
@@ -474,10 +477,10 @@ class FoxtronConnection:
             except asyncio.CancelledError:
                 break  # Task was cancelled, exit loop
             except Exception as e:
-                _LOGGER.error(f"Read loop error: {e}")
+                self._log.error(f"Read loop error: {e}")
                 await self._handle_disconnect()
                 break
-        _LOGGER.debug("Read loop terminated.")
+        self._log.debug("Read loop terminated.")
 
     async def _handle_disconnect(self):
         """Handles the disconnection logic, including initiating a reconnect."""
@@ -486,7 +489,7 @@ class FoxtronConnection:
                 return  # Already handling disconnect
             await self.disconnect()
             await self._on_disconnect_callback()
-            _LOGGER.info(
+            self._log.info(
                 f"Will attempt to reconnect in {self._reconnect_delay} seconds."
             )
             await asyncio.sleep(self._reconnect_delay)
@@ -515,6 +518,7 @@ class FoxtronDaliDriver:
             host: The IP address of the Foxtron gateway.
             port: The TCP port for the specific DALI bus (23 or 24).
         """
+        self._log = _LOGGER.getChild(f"{host}:{port}")
         self._connection = FoxtronConnection(
             host,
             port,
@@ -600,7 +604,7 @@ class FoxtronDaliDriver:
                         if asyncio.iscoroutine(result):
                             asyncio.create_task(result)
                     except Exception:  # pragma: no cover - log unexpected
-                        _LOGGER.exception("Error in event listener callback")
+                        self._log.exception("Error in event listener callback")
         except asyncio.CancelledError:
             pass
 
@@ -626,18 +630,18 @@ class FoxtronDaliDriver:
         if len(frame_content) % 2 != 0 or any(
             c not in b"0123456789ABCDEFabcdef" for c in frame_content
         ):
-            _LOGGER.warning(f"Invalid hex content in frame: {frame_content!r}")
+            self._log.warning(f"Invalid hex content in frame: {frame_content!r}")
             return
 
         try:
             # Convert ASCII hex to binary
             frame_bytes = binascii.unhexlify(frame_content)
         except binascii.Error:
-            _LOGGER.warning(f"Invalid hex content in frame: {frame_content!r}")
+            self._log.warning(f"Invalid hex content in frame: {frame_content!r}")
             return
 
         if len(frame_bytes) < 2:
-            _LOGGER.warning(f"Frame too short: {frame_bytes.hex().upper()}")
+            self._log.warning(f"Frame too short: {frame_bytes.hex().upper()}")
             return
 
         data_payload = frame_bytes[:-1]
@@ -646,7 +650,7 @@ class FoxtronDaliDriver:
 
         # Validate the checksum
         if received_checksum != expected_checksum:
-            _LOGGER.error(
+            self._log.error(
                 f"Checksum mismatch! Payload: {data_payload.hex().upper()}, "
                 f"Rcvd: {received_checksum:02X}, Exp: {expected_checksum:02X}"
             )
@@ -654,7 +658,7 @@ class FoxtronDaliDriver:
 
         msg_type = data_payload[0]
         msg_type_name = MESSAGE_TYPE_NAMES.get(msg_type, "Unknown")
-        _LOGGER.debug(
+        self._log.debug(
             f"Parsing message type 0x{msg_type:02X} ({msg_type_name}) with payload {data_payload.hex().upper()}"
         )
 
@@ -671,17 +675,17 @@ class FoxtronDaliDriver:
         elif msg_type == MSG_TYPE_CONFIRMATION_NO_ANSWER:
             self._handle_confirmation(data_payload)
         else:
-            _LOGGER.warning(f"No handler for message type 0x{msg_type:02X}")
+            self._log.warning(f"No handler for message type 0x{msg_type:02X}")
 
         if event:
             # Log the received event for debugging purposes
-            _LOGGER.debug("Received event: %r", event)
+            self._log.debug("Received event: %r", event)
             if isinstance(event, DaliInputNotificationEvent):
                 if event.event_code not in (
                     EVENT_BUTTON_PRESSED,
                     EVENT_BUTTON_RELEASED,
                 ):
-                    _LOGGER.debug(
+                    self._log.debug(
                         "Ignoring input notification %s",
                         EVENT_CODE_NAMES.get(
                             event.event_code, f"0x{event.event_code:02X}"
@@ -694,7 +698,7 @@ class FoxtronDaliDriver:
 
     def _handle_confirmation(self, data_payload: bytes) -> None:
         """Handles a Type 0x0E confirmation message."""
-        _LOGGER.debug("Received confirmation for our sent command.")
+        self._log.debug("Received confirmation for our sent command.")
 
     def _handle_dali_response(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles a Type 0x0D DALI response message.
@@ -726,7 +730,7 @@ class FoxtronDaliDriver:
             self._pending_dali_queries.pop(cmd_key)
             if not future.done():
                 result = dali_answer[0] if dali_answer else None
-                _LOGGER.debug(
+                self._log.debug(
                     f"Resolving pending query for {cmd_key.hex()} with {result} via fallback."
                 )
                 future.set_result(result)
@@ -735,12 +739,12 @@ class FoxtronDaliDriver:
         if dali_answer:
             # This is an unsolicited response, likely from another DALI master.
             # We create an event but don't know the source address.
-            _LOGGER.debug(
+            self._log.debug(
                 f"Received unsolicited DALI query response with value: {dali_answer.hex().upper()}"
             )
             return DaliQueryResponseEvent(data_payload, -1, dali_answer[0])
         else:
-            _LOGGER.debug("Received unsolicited DALI response with no answer data.")
+            self._log.debug("Received unsolicited DALI response with no answer data.")
         return None
 
     def _handle_dali_event(self, data_payload: bytes) -> Optional[DaliEvent]:
@@ -752,7 +756,7 @@ class FoxtronDaliDriver:
         if msg_type == MSG_TYPE_DALI_EVENT_WITH_ANSWER:
             ans_len_bits = data_payload[2]
             if ans_len_bits == 0:
-                _LOGGER.debug("Type 0x03 event with no answer (collision)")
+                self._log.debug("Type 0x03 event with no answer (collision)")
             start = 3
         else:
             start = 2
@@ -787,7 +791,7 @@ class FoxtronDaliDriver:
         """Constructs and sends a Type 0x0B message to the gateway."""
         length_in_bits = len(dali_command) * 8
         if not 8 <= length_in_bits <= 64:
-            _LOGGER.error(f"Invalid DALI command length: {length_in_bits} bits")
+            self._log.error(f"Invalid DALI command length: {length_in_bits} bits")
             return
 
         # Construct the binary payload for the Foxtron frame
@@ -813,7 +817,7 @@ class FoxtronDaliDriver:
         params = 0x01 if send_twice else 0x00
         dali_command = bytes([address_byte, opcode_byte])
         await self._send_dali_frame(dali_command, params)
-        _LOGGER.debug(
+        self._log.debug(
             f"Sent DALI command: Address=0x{address_byte:02X}, Opcode=0x{opcode_byte:02X}"
         )
 
@@ -844,7 +848,7 @@ class FoxtronDaliDriver:
             response was received after all retries.
         """
         if address_byte & 0x01 == 0:
-            _LOGGER.warning(
+            self._log.warning(
                 "send_dali_query called with even address byte 0x%02X; "
                 "queries usually require the least significant bit set to 1",
                 address_byte,
@@ -852,7 +856,7 @@ class FoxtronDaliDriver:
 
         dali_command = bytes([address_byte, opcode_byte])
         if dali_command in self._pending_dali_queries:
-            _LOGGER.warning("Query for %s already in progress.", dali_command.hex())
+            self._log.warning("Query for %s already in progress.", dali_command.hex())
             return None
 
         total_attempts = retries + 1
@@ -862,7 +866,7 @@ class FoxtronDaliDriver:
                     future = asyncio.get_running_loop().create_future()
                     self._pending_dali_queries[dali_command] = future
                     await self._send_dali_frame(dali_command, params=0x00)
-                    _LOGGER.debug(
+                    self._log.debug(
                         "Sent DALI Query: Address=0x%02X, Opcode=0x%02X "
                         "(attempt %s/%s)",
                         address_byte,
@@ -875,7 +879,7 @@ class FoxtronDaliDriver:
                     return response
             except (asyncio.TimeoutError, ConnectionError) as e:
                 self._pending_dali_queries.pop(dali_command, None)
-                _LOGGER.debug(
+                self._log.debug(
                     "No response for query %s on attempt %s/%s: %s",
                     dali_command.hex(),
                     attempt,
@@ -885,7 +889,7 @@ class FoxtronDaliDriver:
                 if attempt < total_attempts:
                     await asyncio.sleep(backoff * attempt)
                     continue
-                _LOGGER.warning(
+                self._log.warning(
                     "No response for query %s after %s attempts",
                     dali_command.hex(),
                     total_attempts,
@@ -905,7 +909,7 @@ class FoxtronDaliDriver:
             fade_code: A DALI fade code (0-15).
         """
         if not 0 <= fade_code <= 15:
-            _LOGGER.error(f"Invalid fade code: {fade_code}. Must be 0-15.")
+            self._log.error(f"Invalid fade code: {fade_code}. Must be 0-15.")
             return
 
         fade_time_map = {
@@ -927,7 +931,7 @@ class FoxtronDaliDriver:
             15: 90.5,
         }
         approx_time = fade_time_map.get(fade_code, "Unknown")
-        _LOGGER.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
+        self._log.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
 
         # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME
         await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
@@ -938,12 +942,12 @@ class FoxtronDaliDriver:
 
     async def broadcast_off(self):
         """Turns off all lights on the DALI bus via broadcast."""
-        _LOGGER.debug("Broadcasting OFF command to all devices")
+        self._log.debug("Broadcasting OFF command to all devices")
         await self.send_dali_command(DALI_BROADCAST, DALI_CMD_OFF, send_twice=False)
 
     async def broadcast_on(self):
         """Turns on all lights on the DALI bus to their maximum level via broadcast."""
-        _LOGGER.debug("Broadcasting RECALL_MAX_LEVEL command to all devices")
+        self._log.debug("Broadcasting RECALL_MAX_LEVEL command to all devices")
         await self.send_dali_command(
             DALI_BROADCAST, DALI_CMD_RECALL_MAX_LEVEL, send_twice=False
         )
@@ -956,10 +960,10 @@ class FoxtronDaliDriver:
             level: The DALI brightness level (0-254). 0 is off.
         """
         if not 0 <= short_address <= 63:
-            _LOGGER.error(f"Invalid short address: {short_address}. Must be 0-63.")
+            self._log.error(f"Invalid short address: {short_address}. Must be 0-63.")
             return
         if not 0 <= level <= 254:
-            _LOGGER.error(f"Invalid DALI level: {level}. Must be 0-254.")
+            self._log.error(f"Invalid DALI level: {level}. Must be 0-254.")
             return
 
         # Direct Arc Power Control (DAPC) command
@@ -985,7 +989,7 @@ class FoxtronDaliDriver:
         if self._scan_cache is not None and not refresh:
             return list(self._scan_cache)
 
-        _LOGGER.info("Starting DALI bus scan for control gear (lights)...")
+        self._log.info("Starting DALI bus scan for control gear (lights)...")
         found_devices: List[int] = []
         batch_size = 8
         for batch_start in range(0, 64, batch_size):
@@ -997,7 +1001,7 @@ class FoxtronDaliDriver:
             for idx, response in enumerate(results):
                 if response is not None:
                     addr = batch_start + idx
-                    _LOGGER.debug(
+                    self._log.debug(
                         f"Found control gear (light) at short address {addr}!"
                     )
                     found_devices.append(addr)
@@ -1016,7 +1020,7 @@ class FoxtronDaliDriver:
             The current DALI level (0-254), or None if no response.
         """
         if not 0 <= short_address <= 63:
-            _LOGGER.error(f"Invalid short address: {short_address}. Must be 0-63.")
+            self._log.error(f"Invalid short address: {short_address}. Must be 0-63.")
             return None
         address_byte = (short_address * 2) + 1
         opcode_byte = DALI_CMD_QUERY_ACTUAL_LEVEL
@@ -1035,7 +1039,7 @@ class FoxtronDaliDriver:
             The 16-bit integer value of the config item, or None on timeout.
         """
         if item_number in self._pending_config_queries:
-            _LOGGER.warning(f"Query for item {item_number} already in progress.")
+            self._log.warning(f"Query for item {item_number} already in progress.")
             return await self._pending_config_queries[item_number]
 
         async with self._query_lock:
@@ -1049,7 +1053,7 @@ class FoxtronDaliDriver:
             try:
                 return await asyncio.wait_for(future, timeout=timeout)
             except (asyncio.TimeoutError, ConnectionError) as e:
-                _LOGGER.error(
+                self._log.error(
                     f"Failed to get config response for item {item_number}: {e}"
                 )
                 self._pending_config_queries.pop(item_number, None)
