@@ -56,6 +56,7 @@ class DaliButton(EventEntity):
         """Initialize the button event handler."""
         self._driver = driver
         self._entry = entry
+        self._log = _LOGGER.getChild(f"{entry.data[CONF_HOST]}:{entry.data[CONF_PORT]}")
         self._attr_name = "DALI Button Events"
         self._attr_unique_id = (
             f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_button_events"
@@ -133,7 +134,7 @@ class DaliButton(EventEntity):
 
         if event.event_code == EVENT_BUTTON_PRESSED:
             if key not in self._driver._known_buttons:
-                _LOGGER.info("Adopting new button %s", key)
+                self._log.info("Adopting new button %s", key)
                 self._driver.add_known_button(key)
                 buttons = list(self._entry.options.get("buttons", []))
                 if key not in buttons:
