@@ -64,7 +64,7 @@ The integration listens for brightness commands on the DALI bus. When a light le
 
 DALI buttons generate events on the bus whenever they are pressed. The integration forwards these events to Home Assistant without storing any button configuration.
 
-Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `dali_event` event type. Event data includes the `button_id` (formatted as `address-instance`), the gateway `unique_id` (derived from the host and port), and the specific `event_type` such as `short_press` or `long_press_start`.
+Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `foxtron_dali_button_event` event type. Event data includes the `bus_id` (derived from the host and port), the DALI `address`, the `instance_number`, and the specific `press_type` such as `short_press` or `long_press_start`.
 
 Here is an example automation that turns on a light with a short press of a DALI button:
 
@@ -73,20 +73,19 @@ automation:
   - alias: "Turn on kitchen light with DALI button"
     trigger:
       - platform: event
-        event_type: dali_event
+        event_type: foxtron_dali_button_event
         event_data:
-          # Unique ID of the bus and button identifier
-          unique_id: "192.168.1.50_23_button_events"
-          button_id: "56-1"
-          # This is the specific button action you want to react to.
-          event_type: "short_press"
+          bus_id: "192.168.1.50_23"
+          address: 56
+          instance_number: 1
+          press_type: "short_press"
     action:
       - service: light.toggle
         target:
           entity_id: light.kitchen_light
 ```
 
-The `event_type` in the trigger can be any of the following standard DALI-2 event names:
+The `press_type` in the trigger can be any of the following standard DALI-2 event names:
 *   `button_pressed`
 *   `button_released`
 *   `short_press`

@@ -185,11 +185,10 @@ async def test_button_pressed_and_short_press(button, monkeypatch):
     assert events[0] == (
         "button_pressed",
         {
-            "button_id": "1-1",
+            "bus_id": "test_23",
             "address": 1,
             "address_type": "Short",
             "instance_number": 1,
-            "unique_id": "test_23_button_events",
         },
     )
     assert events[1][0] == "button_released"
@@ -290,12 +289,12 @@ async def test_fires_hass_event(button):
     await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
     await asyncio.sleep(0.02)
     assert (
-        "foxtron_dali_button_pressed",
+        "foxtron_dali_button_event",
         {
-            "button_id": "1-1",
+            "bus_id": "test_23",
             "address": 1,
             "address_type": "Short",
             "instance_number": 1,
-            "unique_id": "test_23_button_events",
+            "press_type": "button_pressed",
         },
     ) in button.hass.bus.events
