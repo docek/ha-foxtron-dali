@@ -58,9 +58,8 @@ class DaliButton(EventEntity):
         self._entry = entry
         self._log = _LOGGER.getChild(f"{entry.data[CONF_HOST]}:{entry.data[CONF_PORT]}")
         self._attr_name = "DALI Button Events"
-        self._attr_unique_id = (
-            f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_button_events"
-        )
+        self._bus_id = f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}"
+        self._attr_unique_id = f"{self._bus_id}_button_events"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": f"DALI Bus ({entry.data['host']})",
@@ -107,7 +106,9 @@ class DaliButton(EventEntity):
         """Fire both entity and Home Assistant bus events."""
         super()._trigger_event(event_type, event_attributes)
         if getattr(self.hass, "bus", None):
-            self.hass.bus.async_fire(f"{DOMAIN}_{event_type}", event_attributes or {})
+            attrs = dict(event_attributes or {})
+            attrs["press_type"] = event_type
+            self.hass.bus.async_fire(f"{DOMAIN}_button_event", attrs)
 
     async def _handle_event(self, event) -> None:
         """Process a single event from the DALI driver."""
@@ -122,11 +123,10 @@ class DaliButton(EventEntity):
 
         key = format_button_id(event.address, event.instance_number)
         data = {
-            "button_id": key,
+            "bus_id": self._bus_id,
             "address": event.address,
             "address_type": event.address_type,
             "instance_number": event.instance_number,
-            "unique_id": self._attr_unique_id,
         }
 
         state = self._button_states.setdefault(key, _ButtonState())
