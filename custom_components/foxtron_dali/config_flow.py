@@ -9,7 +9,6 @@ from homeassistant.core import callback
 
 
 from .const import DOMAIN
-from .driver import FoxtronDaliDriver
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
     DEFAULT_LONG_PRESS_REPEAT,
@@ -44,6 +43,7 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
 
             # Test the connection
             try:
+                from .driver import FoxtronDaliDriver
                 driver = FoxtronDaliDriver(
                     host=user_input[CONF_HOST], port=user_input[CONF_PORT]
                 )
