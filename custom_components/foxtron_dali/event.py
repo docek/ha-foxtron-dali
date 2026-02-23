@@ -222,6 +222,18 @@ class DaliButton(EventEntity):
                     self.hass.bus.async_fire(EVENT_BUTTON_ACTION, device_event_data)
                     self._log.debug(f"Fired native device trigger: {flap}_{event_type}")
 
+                    # Logbook záznam — zobrazí se v Activity tabu zařízení
+                    self.hass.bus.async_fire(
+                        "logbook_entry",
+                        {
+                            "name": device.name or f"DALI Switch {address}",
+                            "message": f"{flap} {event_type}",
+                            "domain": DOMAIN,
+                            "entity_id": self.entity_id,
+                            "device_id": device.id,
+                        },
+                    )
+
     async def _handle_discovery(self, data: dict, event_time: datetime.datetime):
         """Vyhodnotí, zda nedošlo ke korektní párovací sekvenci stisků."""
         if not self._discovery_active_until or event_time > self._discovery_active_until:
