@@ -197,10 +197,9 @@ class DaliButton(EventEntity):
                 # Prozatím jako nejlepší způsob: uložíme si mapování přímo do konfigurace.
                 upper_inst = None
                 lower_inst = None
-                # Tyto údaje jsme my do device uložili při discovery! (např. do sw_version: upper,lower)
-                if device.sw_version:
+                if device.hw_version:
                     try:
-                        upper_str, lower_str = device.sw_version.split(",")
+                        upper_str, lower_str = device.hw_version.split(",")
                         upper_inst = int(upper_str)
                         lower_inst = int(lower_str)
                     except ValueError:
@@ -272,9 +271,9 @@ class DaliButton(EventEntity):
                 identifiers={identifier},
                 name=f"DALI Vypínač {address} ({self._bus_id})",
                 manufacturer="Foxtron",
-                model="DALI4sw (Tlačítko na zdi)",
-                # Trik: uložíme si mapování nahoru/dolu nenápadně jako text do verze
-                sw_version=f"{upper_instance},{lower_instance}",
+                model="DALI4sw",
+                hw_version=f"{upper_instance},{lower_instance}",
+                sw_version=f"↑ Inst {upper_instance}, ↓ Inst {lower_instance}",
                 via_device=(DOMAIN, self._entry.entry_id)
             )
 
