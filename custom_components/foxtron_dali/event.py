@@ -9,12 +9,14 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, EVENT_BUTTON_ACTION
+from .const import DOMAIN, EVENT_BUTTON_ACTION, MAX_LONG_PRESS_DURATION
 from .driver import (
     DaliInputNotificationEvent,
     FoxtronDaliDriver,
     EVENT_BUTTON_PRESSED,
     EVENT_BUTTON_RELEASED,
+    EVENT_BUTTON_STUCK,
+    EVENT_BUTTON_FREE,
     format_button_id,
 )
 from homeassistant.helpers import device_registry as dr
@@ -110,6 +112,22 @@ class DaliButton(EventEntity):
                 f"{DOMAIN}_start_discovery", self._start_discovery
             )
         )
+
+        # Při reconnectu driveru resetujeme stavy tlačítek
+        self._driver.add_disconnect_callback(self._cancel_all_button_tasks)
+
+    def _cancel_all_button_tasks(self) -> None:
+        """Cancel all pending button tasks (called on TCP reconnect)."""
+        for key, state in self._button_states.items():
+            if state.long_press_task:
+                state.long_press_task.cancel()
+                state.long_press_task = None
+            if state.finalize_task:
+                state.finalize_task.cancel()
+                state.finalize_task = None
+            state.long_press_started = False
+            state.press_count = 0
+        self._log.info("All button states reset (TCP reconnect or cleanup).")
 
     async def _start_discovery(self, event) -> None:
         """Aktivuje párovací režim."""
@@ -273,9 +291,17 @@ class DaliButton(EventEntity):
         if not isinstance(event, DaliInputNotificationEvent):
             return
 
-        if event.address is None or event.event_code not in (
+        if event.address is None:
+            return
+
+        # Akceptujeme: PRESSED, RELEASED, STUCK, FREE
+        # Vše ostatní (Short Press, Double Press apod. z HW) ignorujeme,
+        # protože gesta skládáme sami v softwaru.
+        if event.event_code not in (
             EVENT_BUTTON_PRESSED,
             EVENT_BUTTON_RELEASED,
+            EVENT_BUTTON_STUCK,
+            EVENT_BUTTON_FREE,
         ):
             return
 
@@ -304,7 +330,18 @@ class DaliButton(EventEntity):
                 self._handle_long_press(key)
             )
 
-        else:  # EVENT_BUTTON_RELEASED
+        elif event.event_code in (EVENT_BUTTON_RELEASED, EVENT_BUTTON_STUCK, EVENT_BUTTON_FREE):
+            # Button Stuck a Button Free zpracováváme stejně jako RELEASED —
+            # ukončí long_press smyčku a vyhodnotí finální gesto.
+            if event.event_code == EVENT_BUTTON_STUCK:
+                self._log.warning(
+                    "Button STUCK detected for %s — treating as release", key
+                )
+            elif event.event_code == EVENT_BUTTON_FREE:
+                self._log.info(
+                    "Button FREE after stuck for %s", key
+                )
+
             self._trigger_event("button_released", data)
 
             if state.long_press_task:
@@ -329,9 +366,23 @@ class DaliButton(EventEntity):
             state.long_press_started = True
             data = state.last_event_data
             self._trigger_event("long_press_start", data)
-            while True:
+
+            # Safety timeout: maximální doba trvání long pressu.
+            # Chrání před situací, kdy RELEASED event nedorazí (TCP ztráta, HW chyba).
+            elapsed = self._long_press_threshold
+            while elapsed < MAX_LONG_PRESS_DURATION:
                 await asyncio.sleep(self._long_press_repeat)
+                elapsed += self._long_press_repeat
                 self._trigger_event("long_press_repeat", data)
+
+            # Dosáhli jsme safety timeoutu — automatické ukončení
+            self._log.warning(
+                "Long press safety timeout (%ss) reached for %s — auto-releasing",
+                MAX_LONG_PRESS_DURATION, key
+            )
+            self._trigger_event("long_press_stop", data)
+            state.long_press_started = False
+            state.press_count = 0
         except asyncio.CancelledError:
             return
 

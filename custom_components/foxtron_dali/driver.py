@@ -536,6 +536,9 @@ class FoxtronDaliDriver:
         # Cache for results of bus scanning to avoid repeated full scans
         self._scan_cache: Optional[List[int]] = None
 
+        # Callbacks to invoke on disconnect (e.g., to reset button states)
+        self._disconnect_callbacks: list[Callable[[], None]] = []
+
         # Task created by the integration to establish the initial connection
         self.connect_task: asyncio.Task | None = None
 
@@ -619,6 +622,17 @@ class FoxtronDaliDriver:
                 future.set_exception(ConnectionError("Gateway disconnected"))
         self._pending_dali_queries.clear()
 
+        # Notify registered disconnect callbacks (e.g., event.py button state reset)
+        for cb in self._disconnect_callbacks:
+            try:
+                cb()
+            except Exception:
+                self._log.exception("Error in disconnect callback")
+
+    def add_disconnect_callback(self, callback: Callable[[], None]) -> None:
+        """Register a callback to be invoked when the gateway disconnects."""
+        self._disconnect_callbacks.append(callback)
+
     async def _parse_and_queue_message(self, frame_content: bytes):
         """Parses a raw frame from the connection and queues it as a DaliEvent.
 
@@ -680,18 +694,6 @@ class FoxtronDaliDriver:
         if event:
             # Log the received event for debugging purposes
             self._log.debug("Received event: %r", event)
-            if isinstance(event, DaliInputNotificationEvent):
-                if event.event_code not in (
-                    EVENT_BUTTON_PRESSED,
-                    EVENT_BUTTON_RELEASED,
-                ):
-                    self._log.debug(
-                        "Ignoring input notification %s",
-                        EVENT_CODE_NAMES.get(
-                            event.event_code, f"0x{event.event_code:02X}"
-                        ),
-                    )
-                    return
 
             # Add the parsed event to the queue for the application to process
             await self._event_queue.put(event)
