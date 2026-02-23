@@ -141,9 +141,6 @@ class DaliButton(EventEntity):
         self._last_discovery_press = None
         self._log.info(f"DISCOVERY MODE pro {self._bus_id} UKONČEN.")
         self.hass.components.persistent_notification.async_dismiss(f"dali_discovery_{self._bus_id}")
-        """Run when entity about to be added to hass."""
-        await super().async_added_to_hass()
-        self._unsub = self._driver.add_event_listener(self._handle_event)
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
