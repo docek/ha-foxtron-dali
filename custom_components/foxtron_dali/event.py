@@ -197,11 +197,13 @@ class DaliButton(EventEntity):
                 # Prozatím jako nejlepší způsob: uložíme si mapování přímo do konfigurace.
                 upper_inst = None
                 lower_inst = None
-                if device.hw_version:
+                # Čteme mapování z hw_version (nový formát), fallback na sw_version (starý)
+                mapping_str = device.hw_version or device.sw_version
+                if mapping_str:
                     try:
-                        upper_str, lower_str = device.hw_version.split(",")
-                        upper_inst = int(upper_str)
-                        lower_inst = int(lower_str)
+                        upper_str, lower_str = mapping_str.split(",")
+                        upper_inst = int(upper_str.strip())
+                        lower_inst = int(lower_str.strip())
                     except ValueError:
                         pass
                 
