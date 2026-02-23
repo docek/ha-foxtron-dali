@@ -68,6 +68,9 @@
                 }
             }
         },
+        "abort": {
+            "discovery_started": "Pairing mode activated for 60 seconds. Press Upper then Lower on the switch to register it."
+        },
         "error": {
             "invalid_json": "Invalid JSON file. Expected a mapping of addresses to configuration objects.",
             "file_not_found": "File not found. Please check the path and try again.",

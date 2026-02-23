@@ -104,23 +104,11 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         self, user_input: Optional[Dict[str, Any]] = None
     ):
         """Handle starting the discovery pairing mode."""
-        if user_input is not None:
-            # Pustíme discovery event přes Home Assistant bus, který si naše `event.py` odchytne.
-            self.hass.bus.async_fire(f"{DOMAIN}_start_discovery", {"duration": user_input["duration"]})
-            return self.async_create_entry(title="", data=self.config_entry.options)
-
-        return self.async_show_form(
-            step_id="start_discovery",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "duration",
-                        default=60,
-                        description="Trvání discovery módu ve vteřinách."
-                    ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
-                }
-            ),
+        # Okamžitě spustíme párování na 60s — žádný formulář.
+        self.hass.bus.async_fire(
+            f"{DOMAIN}_start_discovery", {"duration": 60}
         )
+        return self.async_abort(reason="discovery_started")
 
     async def async_step_set_event_timing(
         self, user_input: Optional[Dict[str, Any]] = None
