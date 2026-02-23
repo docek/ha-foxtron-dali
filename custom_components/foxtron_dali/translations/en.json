@@ -23,10 +23,18 @@
             "init": {
                 "title": "Foxtron DALI Options",
                 "menu_options": {
+                    "start_discovery": "Start Button Pairing",
                     "set_event_timing": "Set Event Timing",
                     "set_fade_time": "Set Fade Time",
                     "upload_config": "Upload Light Configuration",
                     "backup_config": "Backup Light Configuration"
+                }
+            },
+            "start_discovery": {
+                "title": "Start Button Pairing",
+                "description": "Activate discovery mode to pair physical DALI switches. Press Upper then Lower on the switch within 5 seconds to register it.",
+                "data": {
+                    "duration": "Discovery duration (seconds)"
                 }
             },
             "set_fade_time": {
