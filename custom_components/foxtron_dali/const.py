@@ -4,7 +4,23 @@
 DOMAIN = "foxtron_dali"
 PLATFORMS = ["light", "event"]
 
-# --- Signals ---
-# Signal to dispatch a new DALI event to entities.
-# The event object itself will be passed in the signal.
+# --- Event and Trigger Constants ---
 SIGNAL_DALI_EVENT = f"{DOMAIN}_event"
+EVENT_BUTTON_ACTION = f"{DOMAIN}_button_action"
+
+CONF_UPPER_INSTANCE = "upper_instance"
+CONF_LOWER_INSTANCE = "lower_instance"
+CONF_ADDRESS = "address"
+
+# Types of button presses
+PRESS_TYPES = [
+    "short_press",
+    "double_press",
+    "triple_press",
+    "long_press_start",
+    "long_press_repeat",
+    "long_press_stop",
+]
+
+# Switch flaps
+FLAPS = ["upper", "lower"]

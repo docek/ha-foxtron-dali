@@ -97,7 +97,29 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["set_fade_time", "set_event_timing"],
+            menu_options=["start_discovery", "set_fade_time", "set_event_timing"],
+        )
+
+    async def async_step_start_discovery(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
+        """Handle starting the discovery pairing mode."""
+        if user_input is not None:
+            # Pustíme discovery event přes Home Assistant bus, který si naše `event.py` odchytne.
+            self.hass.bus.async_fire(f"{DOMAIN}_start_discovery", {"duration": user_input["duration"]})
+            return self.async_create_entry(title="", data=self.config_entry.options)
+
+        return self.async_show_form(
+            step_id="start_discovery",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "duration",
+                        default=60,
+                        description="Trvání discovery módu ve vteřinách."
+                    ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
+                }
+            ),
         )
 
     async def async_step_set_event_timing(

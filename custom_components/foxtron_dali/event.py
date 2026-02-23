@@ -9,7 +9,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, EVENT_BUTTON_ACTION
 from .driver import (
     DaliInputNotificationEvent,
     FoxtronDaliDriver,
@@ -17,6 +17,11 @@ from .driver import (
     EVENT_BUTTON_RELEASED,
     format_button_id,
 )
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntry
+from homeassistant.helpers.event import async_track_point_in_time
+from homeassistant.util import dt as dt_util
+import datetime
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,7 +94,53 @@ class DaliButton(EventEntity):
             "multi_press_window", DEFAULT_MULTI_PRESS_WINDOW
         )
 
+        # ====== Discovery Mode Properties ======
+        self._discovery_active_until: datetime.datetime | None = None
+        self._last_discovery_press: dict | None = None
+        self._discovery_unsub: Callable | None = None
+
     async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added to hass."""
+        await super().async_added_to_hass()
+        self._unsub = self._driver.add_event_listener(self._handle_event)
+        
+        # Nasloucháme globálnímu signálu pro spuštění discovery z config flow
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                f"{DOMAIN}_start_discovery", self._start_discovery
+            )
+        )
+
+    async def _start_discovery(self, event) -> None:
+        """Aktivuje párovací režim."""
+        duration = event.data.get("duration", 60)
+        self._discovery_active_until = dt_util.utcnow() + datetime.timedelta(seconds=duration)
+        self._last_discovery_press = None
+        self._log.info(f"DISCOVERY MODE AKTIVOVÁN na {duration} vteřin pro {self._bus_id}!")
+        
+        # Upozornění i vizuální (persistentní notifikace)
+        self.hass.components.persistent_notification.async_create(
+            f"Párovací režim pro DALI bránu {self._bus_id} běží. "
+            f"Stiskněte Nahoře a hned poté Dolů na fyzickém tlačítku pro spárování.",
+            title="DALI Párování Aktivní",
+            notification_id=f"dali_discovery_{self._bus_id}",
+        )
+
+        if self._discovery_unsub:
+            self._discovery_unsub()
+
+        # Automatické vypnutí po expiraci
+        self._discovery_unsub = async_track_point_in_time(
+            self.hass, self._end_discovery, self._discovery_active_until
+        )
+
+    @callback
+    def _end_discovery(self, *_) -> None:
+        """Ukončí párovací režim."""
+        self._discovery_active_until = None
+        self._last_discovery_press = None
+        self._log.info(f"DISCOVERY MODE pro {self._bus_id} UKONČEN.")
+        self.hass.components.persistent_notification.async_dismiss(f"dali_discovery_{self._bus_id}")
         """Run when entity about to be added to hass."""
         await super().async_added_to_hass()
         self._unsub = self._driver.add_event_listener(self._handle_event)
@@ -105,10 +156,120 @@ class DaliButton(EventEntity):
     ) -> None:
         """Fire both entity and Home Assistant bus events."""
         super()._trigger_event(event_type, event_attributes)
+        
         if getattr(self.hass, "bus", None):
             attrs = dict(event_attributes or {})
+            
+            # --- Zpětná kompatibilita (starý event) ---
             attrs["press_type"] = event_type
             self.hass.bus.async_fire(f"{DOMAIN}_button_event", attrs)
+
+            # --- Nativní Device Triggers ---
+            # Zkusíme dohledat zaregistrovaný physical device podle unikátní identity (bus_id_address)
+            # A vystavit nativní EVENT_BUTTON_ACTION pro zařízení (tím ho odchytí device_trigger.py)
+            device_registry = dr.async_get(self.hass)
+            address = attrs.get("address")
+            instance_number = attrs.get("instance_number")
+            
+            # Najdeme device s identifikátorem `foxtron_dali_dali4sw_{bus_id}_{address}`
+            device_identifier = (DOMAIN, f"dali4sw_{self._bus_id}_{address}")
+            device = device_registry.async_get_device(identifiers={device_identifier})
+            
+            if device:
+                # Najdeme, jestli se instance mapuje na upper nebo lower
+                # Tohle závisí na informacích, co si uložíme do device v `hw_version` apod.,
+                # nebo elegantně vyčteme z vazby v registrech.
+                # Prozatím jako nejlepší způsob: uložíme si mapování přímo do konfigurace.
+                upper_inst = None
+                lower_inst = None
+                # Tyto údaje jsme my do device uložili při discovery! (např. do sw_version: upper,lower)
+                if device.sw_version:
+                    try:
+                        upper_str, lower_str = device.sw_version.split(",")
+                        upper_inst = int(upper_str)
+                        lower_inst = int(lower_str)
+                    except ValueError:
+                        pass
+                
+                flap = None
+                if instance_number == upper_inst:
+                    flap = "upper"
+                elif instance_number == lower_inst:
+                    flap = "lower"
+                
+                # Pokud víme, o jakou klapku šlo, pustíme nativní device trigger
+                if flap:
+                    device_event_data = {
+                        "device_id": device.id,
+                        "flap": flap,
+                        "press_type": event_type,
+                    }
+                    self.hass.bus.async_fire(EVENT_BUTTON_ACTION, device_event_data)
+                    self._log.debug(f"Fired native device trigger: {flap}_{event_type}")
+
+    async def _handle_discovery(self, data: dict, event_time: datetime.datetime):
+        """Vyhodnotí, zda nedošlo ke korektní párovací sekvenci stisků."""
+        if not self._discovery_active_until or event_time > self._discovery_active_until:
+            return
+
+        address = data["address"]
+        instance = data["instance_number"]
+
+        if not self._last_discovery_press:
+            self._last_discovery_press = {
+                "address": address,
+                "instance": instance,
+                "time": event_time
+            }
+            return
+
+        # Už máme první stisk, zkontrolujeme druhý
+        last = self._last_discovery_press
+        
+        # Musí to být stejná adresa, jiná instance, a do 5 vteřin po sobě
+        time_diff = (event_time - last["time"]).total_seconds()
+        
+        if last["address"] == address and last["instance"] != instance and time_diff <= 5.0:
+            upper_instance = last["instance"]
+            lower_instance = instance
+            
+            self._log.info(f"DISCOVERY ÚSPĚŠNÁ! Pareme Adresu {address} -> Nahoru: {upper_instance}, Dolu: {lower_instance}")
+            
+            # ====== KDYŽ DOPOČÍTÁME PÁROVÁNÍ, VYTVOŘÍME HA DEVICE! ======
+            device_registry = dr.async_get(self.hass)
+            
+            identifier = (DOMAIN, f"dali4sw_{self._bus_id}_{address}")
+            
+            new_device = device_registry.async_get_or_create(
+                config_entry_id=self._entry.entry_id,
+                identifiers={identifier},
+                name=f"DALI Vypínač {address} ({self._bus_id})",
+                manufacturer="Foxtron",
+                model="DALI4sw (Tlačítko na zdi)",
+                # Trik: uložíme si mapování nahoru/dolu nenápadně jako text do verze
+                sw_version=f"{upper_instance},{lower_instance}",
+                via_device=(DOMAIN, self._entry.entry_id)
+            )
+
+            # Pošleme notifikaci o spárování uživateli
+            self.hass.components.persistent_notification.async_create(
+                f"Nový vypínač (Adresa: {address}) byl **úspěšně zaregistrován** v integraci DALI.\n\n"
+                f"* Nahoru (Upper): Instance {upper_instance}\n"
+                f"* Dolů (Lower): Instance {lower_instance}\n\n"
+                "Klikněte do Nastavení -> Zařízení a služby -> Devices, kde si tlačítko můžete přejmenovat a napojit na automatizace.",
+                title="DALI Vypínač Zaregistrován ✅",
+                notification_id=f"dali_found_{self._bus_id}_{address}",
+            )
+            
+            # Restartujeme sekvenci, abychom nenahrávali blbosti
+            self._last_discovery_press = None
+        else:
+            # Neplatná sekvence (třeba jina adresa, nebo moc pomalu). Přejedeme.
+            self._last_discovery_press = {
+                "address": address,
+                "instance": instance,
+                "time": event_time
+            }
 
     async def _handle_event(self, event) -> None:
         """Process a single event from the DALI driver."""
@@ -133,6 +294,9 @@ class DaliButton(EventEntity):
         state.last_event_data = data
 
         if event.event_code == EVENT_BUTTON_PRESSED:
+            # Párovací logika funguje pouze z prostých stisků
+            await self._handle_discovery(data, dt_util.utcnow())
+            
             self._trigger_event("button_pressed", data)
 
             if state.finalize_task:
