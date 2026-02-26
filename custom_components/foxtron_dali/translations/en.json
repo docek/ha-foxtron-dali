@@ -24,6 +24,7 @@
                 "title": "Foxtron DALI Options",
                 "menu_options": {
                     "start_discovery": "Start Button Pairing",
+                    "reload_all": "Reload All Buses",
                     "set_event_timing": "Set Event Timing",
                     "set_fade_time": "Set Fade Time",
                     "upload_config": "Upload Light Configuration",
@@ -69,7 +70,8 @@
             }
         },
         "abort": {
-            "discovery_started": "Pairing mode activated for 60 seconds. Press Upper then Lower on the switch to register it."
+            "discovery_started": "Pairing mode activated for 60 seconds. Press Upper then Lower on the switch to register it.",
+            "reload_complete": "All DALI buses reloaded successfully."
         },
         "error": {
             "invalid_json": "Invalid JSON file. Expected a mapping of addresses to configuration objects.",

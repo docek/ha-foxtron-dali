@@ -97,7 +97,7 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["start_discovery", "set_fade_time", "set_event_timing"],
+            menu_options=["start_discovery", "reload_all", "set_fade_time", "set_event_timing"],
         )
 
     async def async_step_start_discovery(
@@ -109,6 +109,14 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
             f"{DOMAIN}_start_discovery", {"duration": 60}
         )
         return self.async_abort(reason="discovery_started")
+
+    async def async_step_reload_all(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
+        """Reload all DALI bus config entries at once."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            await self.hass.config_entries.async_reload(entry.entry_id)
+        return self.async_abort(reason="reload_complete")
 
     async def async_step_set_event_timing(
         self, user_input: Optional[Dict[str, Any]] = None
