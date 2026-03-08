@@ -328,14 +328,26 @@ class DaliButton(EventEntity):
                     new_device.id,
                 )
 
+            notification_action = (
+                "byl **nově vytvořen**"
+                if existing_device is None
+                else "už existoval a byl **znovu rozpoznán**"
+            )
+            device_name = new_device.name or f"DALI Vypínač {address} ({self._bus_id})"
+
             # Pošleme notifikaci o spárování uživateli
             persistent_notification.async_create(
                 self.hass,
-                f"Nový vypínač (Adresa: {address}) byl **úspěšně zaregistrován** v integraci DALI.\n\n"
+                f"Vypínač **{device_name}** {notification_action} v integraci DALI.\n\n"
+                f"* DALI bus: `{self._bus_id}`\n"
+                f"* Adresa: `{address}`\n"
                 f"* Nahoru (Upper): Instance {upper_instance}\n"
-                f"* Dolů (Lower): Instance {lower_instance}\n\n"
-                "Klikněte do Nastavení -> Zařízení a služby -> Devices, kde si tlačítko můžete přejmenovat a napojit na automatizace.",
-                title="DALI Vypínač Zaregistrován ✅",
+                f"* Dolů (Lower): Instance {lower_instance}\n"
+                f"* Device ID: `{new_device.id}`\n\n"
+                "Zařízení najdete v Nastavení -> Zařízení a služby -> Zařízení. "
+                "Hledejte název vypínače nebo příslušný DALI bus, pod kterým je zařízení zařazené. "
+                "Tam ho můžete přejmenovat a napojit na automatizace.",
+                title="DALI Vypínač Rozpoznán ✅",
                 notification_id=f"dali_found_{self._bus_id}_{address}",
             )
 
