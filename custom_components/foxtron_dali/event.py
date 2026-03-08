@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time
 
@@ -198,9 +199,7 @@ class DaliButton(EventEntity):
             address = attrs.get("address")
             instance_number = attrs.get("instance_number")
 
-            # Najdeme device s identifikátorem `foxtron_dali_dali4sw_{bus_id}_{address}`
-            device_identifier = (DOMAIN, f"dali4sw_{self._bus_id}_{address}")
-            device = device_registry.async_get_device(identifiers={device_identifier})
+            device = self._find_switch_device(device_registry, address, instance_number)
 
             if device:
                 # Najdeme, jestli se instance mapuje na upper nebo lower
@@ -246,6 +245,54 @@ class DaliButton(EventEntity):
                             "device_id": device.id,
                         },
                     )
+
+    def _parse_switch_mapping(
+        self, device: DeviceEntry
+    ) -> tuple[int | None, int | None]:
+        """Return the configured upper/lower instance mapping for a switch device."""
+        mapping_str = device.hw_version or device.sw_version
+        if not mapping_str:
+            return None, None
+
+        try:
+            upper_str, lower_str = mapping_str.split(",")
+            return int(upper_str.strip()), int(lower_str.strip())
+        except ValueError:
+            return None, None
+
+    def _switch_identifier(
+        self, address: int, upper_instance: int, lower_instance: int
+    ) -> str:
+        """Build a unique identifier for a paired DALI switch."""
+        return f"dali4sw_{self._bus_id}_{address}_{upper_instance}_{lower_instance}"
+
+    def _find_switch_device(
+        self,
+        device_registry: dr.DeviceRegistry,
+        address: int | None,
+        instance_number: int | None,
+    ) -> DeviceEntry | None:
+        """Find the paired switch device matching the address and instance."""
+        if address is None or instance_number is None:
+            return None
+
+        entries = dr.async_entries_for_config_entry(
+            device_registry, self._entry.entry_id
+        )
+        identifier_prefix = f"dali4sw_{self._bus_id}_{address}_"
+
+        for device in entries:
+            if not any(
+                domain == DOMAIN and identifier.startswith(identifier_prefix)
+                for domain, identifier in device.identifiers
+            ):
+                continue
+
+            upper_inst, lower_inst = self._parse_switch_mapping(device)
+            if instance_number in (upper_inst, lower_inst):
+                return device
+
+        return None
 
     async def _handle_discovery(self, data: dict, event_time: datetime.datetime):
         """Vyhodnotí, zda nedošlo ke korektní párovací sekvenci stisků."""
@@ -299,13 +346,19 @@ class DaliButton(EventEntity):
             # ====== KDYŽ DOPOČÍTÁME PÁROVÁNÍ, VYTVOŘÍME HA DEVICE! ======
             device_registry = dr.async_get(self.hass)
 
-            identifier = (DOMAIN, f"dali4sw_{self._bus_id}_{address}")
+            identifier = (
+                DOMAIN,
+                self._switch_identifier(address, upper_instance, lower_instance),
+            )
             existing_device = device_registry.async_get_device(identifiers={identifier})
 
             new_device = device_registry.async_get_or_create(
                 config_entry_id=self._entry.entry_id,
                 identifiers={identifier},
-                name=f"DALI Vypínač {address} ({self._bus_id})",
+                name=(
+                    f"DALI Vypínač {address} ({self._bus_id}, "
+                    f"{upper_instance}/{lower_instance})"
+                ),
                 manufacturer="Foxtron",
                 model="DALI4sw",
                 hw_version=f"{upper_instance},{lower_instance}",
@@ -348,7 +401,9 @@ class DaliButton(EventEntity):
                 "Hledejte název vypínače nebo příslušný DALI bus, pod kterým je zařízení zařazené. "
                 "Tam ho můžete přejmenovat a napojit na automatizace.",
                 title="DALI Vypínač Rozpoznán ✅",
-                notification_id=f"dali_found_{self._bus_id}_{address}",
+                notification_id=(
+                    f"dali_found_{self._bus_id}_{address}_{upper_instance}_{lower_instance}"
+                ),
             )
 
             # Restartujeme sekvenci, abychom nenahrávali blbosti
