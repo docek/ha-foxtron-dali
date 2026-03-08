@@ -250,6 +250,10 @@ class DaliButton(EventEntity):
         self, device: DeviceEntry
     ) -> tuple[int | None, int | None]:
         """Return the configured upper/lower instance mapping for a switch device."""
+        _, upper_instance, lower_instance = self._parse_switch_identity(device)
+        if upper_instance is not None and lower_instance is not None:
+            return upper_instance, lower_instance
+
         mapping_str = device.hw_version or device.sw_version
         if not mapping_str:
             return None, None
@@ -259,6 +263,30 @@ class DaliButton(EventEntity):
             return int(upper_str.strip()), int(lower_str.strip())
         except ValueError:
             return None, None
+
+    def _parse_switch_identity(
+        self, device: DeviceEntry
+    ) -> tuple[int | None, int | None, int | None]:
+        """Return address and instance mapping parsed from device identifiers."""
+        prefix = f"dali4sw_{self._bus_id}_"
+
+        for domain, identifier in device.identifiers:
+            if domain != DOMAIN or not identifier.startswith(prefix):
+                continue
+
+            suffix = identifier[len(prefix) :]
+            parts = suffix.split("_")
+            if len(parts) != 3:
+                continue
+
+            try:
+                address, upper_instance, lower_instance = (int(part) for part in parts)
+            except ValueError:
+                continue
+
+            return address, upper_instance, lower_instance
+
+        return None, None, None
 
     def _switch_identifier(
         self, address: int, upper_instance: int, lower_instance: int
@@ -288,7 +316,9 @@ class DaliButton(EventEntity):
             ):
                 continue
 
-            upper_inst, lower_inst = self._parse_switch_mapping(device)
+            _, upper_inst, lower_inst = self._parse_switch_identity(device)
+            if upper_inst is None or lower_inst is None:
+                upper_inst, lower_inst = self._parse_switch_mapping(device)
             if instance_number in (upper_inst, lower_inst):
                 return device
 
@@ -361,7 +391,7 @@ class DaliButton(EventEntity):
                 ),
                 manufacturer="Foxtron",
                 model="DALI4sw",
-                hw_version=f"{upper_instance},{lower_instance}",
+                hw_version=f"Addr {address}",
                 sw_version=f"↑ Inst {upper_instance}, ↓ Inst {lower_instance}",
                 via_device=(DOMAIN, self._entry.entry_id),
             )

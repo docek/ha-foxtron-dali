@@ -3,10 +3,12 @@
 import asyncio
 import contextlib
 import logging
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
@@ -88,10 +90,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for driver in hass.data[DOMAIN].values():
                 await driver.scan_for_devices()
 
+        async def handle_remove_paired_switch(call: ServiceCall) -> None:
+            """Remove a paired DALI switch device created by this integration."""
+            device_id = call.data["device_id"]
+            device_registry = dr.async_get(hass)
+            device = device_registry.async_get(device_id)
+
+            if device is None:
+                raise ServiceValidationError(
+                    f"Device '{device_id}' was not found in the device registry."
+                )
+
+            is_paired_switch = any(
+                domain == DOMAIN and identifier.startswith("dali4sw_")
+                for domain, identifier in device.identifiers
+            )
+            if not is_paired_switch:
+                raise ServiceValidationError(
+                    f"Device '{device_id}' is not a paired Foxtron DALI switch device."
+                )
+
+            device_registry.async_remove_device(device_id)
+            _LOGGER.info("Removed paired DALI switch device %s", device_id)
+
         hass.services.async_register(DOMAIN, "broadcast_on", handle_broadcast_on)
         hass.services.async_register(DOMAIN, "broadcast_off", handle_broadcast_off)
         hass.services.async_register(DOMAIN, "set_fade_time", handle_set_fade_time)
         hass.services.async_register(DOMAIN, "scan_for_lights", handle_scan_for_lights)
+        hass.services.async_register(
+            DOMAIN,
+            "remove_paired_switch",
+            handle_remove_paired_switch,
+            schema=vol.Schema({vol.Required("device_id"): str}),
+        )
 
     return True
 
@@ -125,6 +156,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "broadcast_off",
                 "set_fade_time",
                 "scan_for_lights",
+                "remove_paired_switch",
             ):
                 hass.services.async_remove(DOMAIN, service)
 

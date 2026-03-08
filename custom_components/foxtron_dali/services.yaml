@@ -2,6 +2,16 @@ scan_for_lights:
   description: Scans the DALI bus for new lights and adds them to Home Assistant.
   fields: {}
 
+remove_paired_switch:
+  description: Removes a paired DALI switch device created by this integration.
+  fields:
+    device_id:
+      description: Home Assistant device registry ID of the paired DALI switch to remove.
+      example: 1f4e855932f7bf9a3a13cec00c5a511
+      required: true
+      selector:
+        text:
+
 broadcast_on:
   description: Turns on all lights on the DALI bus to their maximum level.
   fields: {}
