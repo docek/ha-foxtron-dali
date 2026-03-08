@@ -3,11 +3,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
+from homeassistant.components import persistent_notification
 from homeassistant.components.event import EventEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_point_in_time
 
 from .const import (
     DISCOVERY_DURATION_SECONDS,
@@ -24,8 +27,6 @@ from .driver import (
     EVENT_BUTTON_FREE,
     format_button_id,
 )
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import dt as dt_util
 import datetime
 
@@ -145,7 +146,8 @@ class DaliButton(EventEntity):
         )
 
         # Upozornění i vizuální (persistentní notifikace)
-        self.hass.components.persistent_notification.async_create(
+        persistent_notification.async_create(
+            self.hass,
             f"Párovací režim pro DALI bránu {self._bus_id} běží. "
             f"Stiskněte Nahoře a hned poté Dolů na fyzickém tlačítku pro spárování.",
             title="DALI Párování Aktivní",
@@ -166,8 +168,8 @@ class DaliButton(EventEntity):
         self._discovery_active_until = None
         self._last_discovery_press = None
         self._log.info(f"DISCOVERY MODE pro {self._bus_id} UKONČEN.")
-        self.hass.components.persistent_notification.async_dismiss(
-            f"dali_discovery_{self._bus_id}"
+        persistent_notification.async_dismiss(
+            self.hass, f"dali_discovery_{self._bus_id}"
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -327,7 +329,8 @@ class DaliButton(EventEntity):
                 )
 
             # Pošleme notifikaci o spárování uživateli
-            self.hass.components.persistent_notification.async_create(
+            persistent_notification.async_create(
+                self.hass,
                 f"Nový vypínač (Adresa: {address}) byl **úspěšně zaregistrován** v integraci DALI.\n\n"
                 f"* Nahoru (Upper): Instance {upper_instance}\n"
                 f"* Dolů (Lower): Instance {lower_instance}\n\n"
