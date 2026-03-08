@@ -33,10 +33,7 @@
             },
             "start_discovery": {
                 "title": "Start Button Pairing",
-                "description": "Activate discovery mode to pair physical DALI switches. Press Upper then Lower on the switch within 5 seconds to register it.",
-                "data": {
-                    "duration": "Discovery duration (seconds)"
-                }
+                "description": "Activate discovery mode for 5 minutes to pair physical DALI switches. Press Upper then Lower on the switch within 5 seconds to register it."
             },
             "set_fade_time": {
                 "title": "Set Fade Time",
@@ -70,7 +67,7 @@
             }
         },
         "abort": {
-            "discovery_started": "Pairing mode activated for 60 seconds. Press Upper then Lower on the switch to register it.",
+            "discovery_started": "Pairing mode activated for 5 minutes. Press Upper then Lower on the switch to register it.",
             "reload_complete": "All DALI buses reloaded successfully."
         },
         "error": {

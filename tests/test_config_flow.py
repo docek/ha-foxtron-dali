@@ -19,6 +19,7 @@ if not hasattr(config_entries, "OptionsFlowWithReload"):
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from custom_components.foxtron_dali import config_flow
+from custom_components.foxtron_dali.const import DISCOVERY_DURATION_SECONDS
 
 
 @pytest.mark.asyncio
@@ -100,4 +101,24 @@ async def test_options_update_applies_globally():
     )
     hass.config_entries.async_reload.assert_has_awaits(
         [call("1"), call("2")], any_order=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_start_discovery_uses_fixed_duration():
+    """Starting discovery fires a fixed 5-minute pairing event."""
+    hass = MagicMock()
+    hass.bus.async_fire = MagicMock()
+
+    entry = MagicMock()
+    options_flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    options_flow.hass = hass
+
+    result = await options_flow.async_step_start_discovery()
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "discovery_started"
+    hass.bus.async_fire.assert_called_once_with(
+        "foxtron_dali_start_discovery",
+        {"duration": DISCOVERY_DURATION_SECONDS},
     )

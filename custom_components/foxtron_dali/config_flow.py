@@ -8,7 +8,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 
 
-from .const import DOMAIN
+from .const import DISCOVERY_DURATION_SECONDS, DOMAIN
 from .driver import FoxtronDaliDriver
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
@@ -97,22 +97,25 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
         # The user sees this menu first when they click "CONFIGURE"
         return self.async_show_menu(
             step_id="init",
-            menu_options=["start_discovery", "reload_all", "set_fade_time", "set_event_timing"],
+            menu_options=[
+                "start_discovery",
+                "reload_all",
+                "set_fade_time",
+                "set_event_timing",
+            ],
         )
 
     async def async_step_start_discovery(
         self, user_input: Optional[Dict[str, Any]] = None
     ):
         """Handle starting the discovery pairing mode."""
-        # Okamžitě spustíme párování na 60s — žádný formulář.
+        # Start fixed-length pairing immediately without additional form input.
         self.hass.bus.async_fire(
-            f"{DOMAIN}_start_discovery", {"duration": 60}
+            f"{DOMAIN}_start_discovery", {"duration": DISCOVERY_DURATION_SECONDS}
         )
         return self.async_abort(reason="discovery_started")
 
-    async def async_step_reload_all(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ):
+    async def async_step_reload_all(self, user_input: Optional[Dict[str, Any]] = None):
         """Reload all DALI bus config entries at once."""
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             await self.hass.config_entries.async_reload(entry.entry_id)

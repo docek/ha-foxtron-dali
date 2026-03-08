@@ -25,5 +25,8 @@ PRESS_TYPES = [
 # Switch flaps
 FLAPS = ["upper", "lower"]
 
+# Fixed discovery pairing duration (seconds)
+DISCOVERY_DURATION_SECONDS = 300
+
 # Safety: Maximum duration for a long press before auto-cancelling (seconds)
 MAX_LONG_PRESS_DURATION = 30.0
