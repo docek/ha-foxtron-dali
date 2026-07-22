@@ -203,9 +203,7 @@ class DaliButton(EventEntity):
 
             if device:
                 # Mapování instance -> upper/lower nese identifier zařízení
-                # (nový formát), s fallbackem na hw_version/sw_version "u,l"
-                # u zařízení spárovaných starší verzí integrace.
-                upper_inst, lower_inst = self._parse_switch_mapping(device)
+                _, upper_inst, lower_inst = self._parse_switch_identity(device)
 
                 flap = None
                 if instance_number == upper_inst:
@@ -234,24 +232,6 @@ class DaliButton(EventEntity):
                             "device_id": device.id,
                         },
                     )
-
-    def _parse_switch_mapping(
-        self, device: DeviceEntry
-    ) -> tuple[int | None, int | None]:
-        """Return the configured upper/lower instance mapping for a switch device."""
-        _, upper_instance, lower_instance = self._parse_switch_identity(device)
-        if upper_instance is not None and lower_instance is not None:
-            return upper_instance, lower_instance
-
-        mapping_str = device.hw_version or device.sw_version
-        if not mapping_str:
-            return None, None
-
-        try:
-            upper_str, lower_str = mapping_str.split(",")
-            return int(upper_str.strip()), int(lower_str.strip())
-        except ValueError:
-            return None, None
 
     def _parse_switch_identity(
         self, device: DeviceEntry
@@ -306,8 +286,6 @@ class DaliButton(EventEntity):
                 continue
 
             _, upper_inst, lower_inst = self._parse_switch_identity(device)
-            if upper_inst is None or lower_inst is None:
-                upper_inst, lower_inst = self._parse_switch_mapping(device)
             if instance_number in (upper_inst, lower_inst):
                 return device
 

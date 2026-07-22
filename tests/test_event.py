@@ -328,20 +328,20 @@ def _make_switch_device(identifier: str, hw_version=None, sw_version=None):
     return device
 
 
-def test_parse_switch_mapping_new_identifier_format(button):
-    """Mapping comes from the identifier for devices paired by current code."""
+def test_parse_switch_identity(button):
+    """Address and instance mapping are parsed from the device identifier."""
     device = _make_switch_device(
         "dali4sw_test_23_1_1_0",
         hw_version="Addr 1",
         sw_version="↑ Inst 1, ↓ Inst 0",
     )
-    assert button._parse_switch_mapping(device) == (1, 0)
+    assert button._parse_switch_identity(device) == (1, 1, 0)
 
 
-def test_parse_switch_mapping_legacy_version_format(button):
-    """Mapping falls back to hw_version 'u,l' for devices paired by old code."""
+def test_parse_switch_identity_rejects_malformed(button):
+    """Devices without the identifier-borne mapping yield no identity."""
     device = _make_switch_device("dali4sw_test_23_1", hw_version="1,0")
-    assert button._parse_switch_mapping(device) == (1, 0)
+    assert button._parse_switch_identity(device) == (None, None, None)
 
 
 @pytest.mark.asyncio
