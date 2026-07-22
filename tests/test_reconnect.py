@@ -36,12 +36,17 @@ def _allow_local_sockets(socket_enabled):
 class FakeGateway:
     """Minimal TCP server standing in for a Foxtron DALI gateway."""
 
-    def __init__(self) -> None:
+    # Type 0x07 config response (item 2 = firmware 4.6) — what a real
+    # gateway sends back for the keep-alive query.
+    KEEP_ALIVE_RESPONSE = FoxtronMessage.build_frame(bytes([0x07, 0x02, 0x04, 0x06]))
+
+    def __init__(self, respond_keep_alive: bool = False) -> None:
         self.server: asyncio.Server | None = None
         self.port: int | None = None
         self.connections = 0
         self.clients: list[asyncio.StreamWriter] = []
         self.received = b""
+        self.respond_keep_alive = respond_keep_alive
 
     async def start(self, port: int | None = None) -> None:
         self.server = await asyncio.start_server(
@@ -59,6 +64,9 @@ class FakeGateway:
             if not data:
                 return
             self.received += data
+            if self.respond_keep_alive:
+                writer.write(self.KEEP_ALIVE_RESPONSE)
+                await writer.drain()
 
     async def stop(self) -> None:
         for writer in self.clients:
@@ -187,6 +195,68 @@ async def test_events_delivered_over_tcp():
         assert isinstance(event, DaliCommandEvent)
         assert event.address_byte == 0x01
         assert event.opcode_byte == 0x02
+    finally:
+        await driver.disconnect()
+        await gateway.stop()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_recycles_silent_connection():
+    """A connection where nothing ever arrives is declared dead and rebuilt.
+
+    This is the unplugged-cable case: TCP silently black-holes, the kernel
+    would need ~15 minutes to notice, but the keep-alive watchdog recycles
+    the connection within a few intervals.
+    """
+    gateway = FakeGateway(respond_keep_alive=False)
+    await gateway.start()
+    driver = FoxtronDaliDriver(
+        "127.0.0.1", gateway.port, keep_alive_interval=0.05, reconnect_delay=0.05
+    )
+    try:
+        await driver.connect()
+        assert await driver.wait_connected(5)
+        assert await _wait_for(lambda: gateway.connections >= 2)
+    finally:
+        await driver.disconnect()
+        await gateway.stop()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_keeps_responsive_connection():
+    """A gateway answering keep-alives keeps a single stable connection."""
+    gateway = FakeGateway(respond_keep_alive=True)
+    await gateway.start()
+    driver = FoxtronDaliDriver(
+        "127.0.0.1", gateway.port, keep_alive_interval=0.05, reconnect_delay=0.05
+    )
+    try:
+        await driver.connect()
+        assert await driver.wait_connected(5)
+        await asyncio.sleep(0.5)  # ten keep-alive intervals
+        assert driver.is_connected
+        assert gateway.connections == 1
+    finally:
+        await driver.disconnect()
+        await gateway.stop()
+
+
+@pytest.mark.asyncio
+async def test_connect_callback_fires_on_reconnect():
+    """Connect callbacks run on the initial connect and every reconnect."""
+    gateway = FakeGateway(respond_keep_alive=True)
+    await gateway.start()
+    driver = FoxtronDaliDriver("127.0.0.1", gateway.port, reconnect_delay=0.05)
+    connects = []
+    driver.add_connect_callback(lambda: connects.append(1))
+    try:
+        await driver.connect()
+        assert await driver.wait_connected(5)
+        assert await _wait_for(lambda: len(connects) == 1)
+
+        gateway.clients[0].close()  # drop the connection
+        assert await _wait_for(lambda: len(connects) >= 2)
+        assert driver.is_connected
     finally:
         await driver.disconnect()
         await gateway.stop()

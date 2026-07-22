@@ -13,8 +13,10 @@ from .driver import (
     FoxtronDaliDriver,
     DaliCommandEvent,
     DALI_BROADCAST,
+    DALI_BROADCAST_DAPC,
     DALI_CMD_OFF,
     DALI_CMD_RECALL_MAX_LEVEL,
+    DALI_MASK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,6 +113,12 @@ class DaliLight(LightEntity):
         """Register for bus events when added to Home Assistant."""
         await super().async_added_to_hass()
         self._unsub = self._driver.add_event_listener(self._handle_event)
+        self.async_on_remove(
+            self._driver.add_disconnect_callback(self._handle_driver_disconnect)
+        )
+        self.async_on_remove(
+            self._driver.add_connect_callback(self._handle_driver_connect)
+        )
         await self.async_update()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -118,6 +126,23 @@ class DaliLight(LightEntity):
         if self._unsub:
             self._unsub()
         await super().async_will_remove_from_hass()
+
+    def _handle_driver_disconnect(self) -> None:
+        """Mark the light unavailable while the gateway is disconnected."""
+        self._attr_available = False
+        self.async_write_ha_state()
+
+    def _handle_driver_connect(self) -> None:
+        """Restore availability and refresh state after a reconnect."""
+        self._attr_available = True
+        self.async_write_ha_state()
+        # The light may have changed while the gateway was away
+        self.hass.async_create_task(self._async_refresh_state())
+
+    async def _async_refresh_state(self) -> None:
+        """Re-query the actual level and publish the fresh state."""
+        await self.async_update()
+        self.async_write_ha_state()
 
     async def async_update(self) -> None:
         """Fetch new state data for this light."""
@@ -131,24 +156,44 @@ class DaliLight(LightEntity):
             self._brightness = 0
 
     async def _handle_event(self, event) -> None:
-        """Handle incoming DALI bus events to update light state."""
+        """Handle incoming DALI bus events to update light state.
+
+        The LSB of the DALI address byte selects the meaning of the second
+        byte: 0 = DAPC (a light level), 1 = a command opcode. Broadcasts
+        follow the same rule: 0xFE is broadcast DAPC, 0xFF is a broadcast
+        command. Group addressing is not tracked (lights don't know their
+        group membership).
+        """
         if not isinstance(event, DaliCommandEvent):
             return
 
-        if event.address_byte not in (DALI_BROADCAST, self._address * 2):
-            return
+        address_byte = event.address_byte
+        level: Optional[int] = None
+        command: Optional[int] = None
 
-        opcode = event.opcode_byte
-        if opcode == DALI_CMD_OFF:
+        if address_byte == DALI_BROADCAST_DAPC:
+            level = event.opcode_byte
+        elif address_byte == DALI_BROADCAST:
+            command = event.opcode_byte
+        elif address_byte == self._address * 2:
+            level = event.opcode_byte
+        elif address_byte == self._address * 2 + 1:
+            command = event.opcode_byte
+        else:
+            return  # Other address, group or special command frame
+
+        if level is not None:
+            if level == DALI_MASK:
+                return  # MASK = "stop fading", not a level
+            self._brightness = round(level * 255 / 254)
+            self._is_on = level > 0
+        elif command == DALI_CMD_OFF:
             self._is_on = False
             self._brightness = 0
-        elif opcode == DALI_CMD_RECALL_MAX_LEVEL:
+        elif command == DALI_CMD_RECALL_MAX_LEVEL:
             self._is_on = True
             self._brightness = 255
-        elif 0 <= opcode <= 254:
-            self._brightness = round(opcode * 255 / 254)
-            self._is_on = self._brightness > 0
         else:
-            return
+            return  # Other commands don't directly change the level
 
         self.async_write_ha_state()

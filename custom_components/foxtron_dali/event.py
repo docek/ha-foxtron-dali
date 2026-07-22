@@ -120,7 +120,9 @@ class DaliButton(EventEntity):
         )
 
         # Při reconnectu driveru resetujeme stavy tlačítek
-        self._driver.add_disconnect_callback(self._cancel_all_button_tasks)
+        self.async_on_remove(
+            self._driver.add_disconnect_callback(self._cancel_all_button_tasks)
+        )
 
     def _cancel_all_button_tasks(self) -> None:
         """Cancel all pending button tasks (called on TCP reconnect)."""

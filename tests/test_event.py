@@ -145,8 +145,14 @@ class MockDriver:
         self._callback = None
         self._disconnect_callbacks: list = []
 
-    def add_disconnect_callback(self, callback) -> None:
+    def add_disconnect_callback(self, callback):
         self._disconnect_callbacks.append(callback)
+
+        def _unsub() -> None:
+            if callback in self._disconnect_callbacks:
+                self._disconnect_callbacks.remove(callback)
+
+        return _unsub
 
     def add_event_listener(self, callback):
         self._callback = callback

@@ -69,7 +69,9 @@ DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
 DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
 
 # --- DALI Addressing ---
-DALI_BROADCAST = 0xFF
+DALI_BROADCAST = 0xFF  # Broadcast command frame (second byte is a command opcode)
+DALI_BROADCAST_DAPC = 0xFE  # Broadcast DAPC frame (second byte is a light level)
+DALI_MASK = 0xFF  # As a DAPC level: "stop fading", not an actual level
 
 # --- Mappings for Readable Logs ---
 # These dictionaries provide human-readable names for logging purposes.
@@ -330,6 +332,12 @@ class FoxtronConnection:
     """
 
     MAX_RECONNECT_DELAY = 60.0
+    # Declare the connection dead when nothing has been received for this
+    # many keep-alive intervals. The gateway answers every keep-alive query,
+    # so a healthy connection receives data at least once per interval. This
+    # catches silently dead TCP connections (unplugged cable) that the
+    # kernel would otherwise only notice after ~15 minutes of retransmits.
+    WATCHDOG_INTERVALS = 2.5
 
     def __init__(
         self,
@@ -337,6 +345,7 @@ class FoxtronConnection:
         port: int,
         on_message_callback: Callable[[bytes], Awaitable[None]],
         on_disconnect_callback: Callable[[], Awaitable[None]],
+        on_connect_callback: Optional[Callable[[], Awaitable[None]]] = None,
         keep_alive_interval: float = KEEP_ALIVE_INTERVAL,
         reconnect_delay: float = 1.0,
     ):
@@ -346,7 +355,9 @@ class FoxtronConnection:
         self._log = _LOGGER.getChild(f"{host}:{port}")
         self._on_message_callback = on_message_callback
         self._on_disconnect_callback = on_disconnect_callback
+        self._on_connect_callback = on_connect_callback
         self._keep_alive_interval = keep_alive_interval
+        self._last_rx = 0.0
         # Pre-build the keep-alive frame (a query for firmware version)
         keep_alive_payload = bytes([MSG_TYPE_QUERY_CONFIG_ITEM, 0x02])
         self._keep_alive_frame = FoxtronMessage.build_frame(keep_alive_payload)
@@ -430,7 +441,13 @@ class FoxtronConnection:
 
             self._log.info("Connection established.")
             delay = self._initial_reconnect_delay
+            self._last_rx = asyncio.get_running_loop().time()
             self._connected_event.set()
+            if self._on_connect_callback is not None:
+                try:
+                    await self._on_connect_callback()
+                except Exception:
+                    self._log.exception("Error in connect callback")
             read_task = asyncio.create_task(self._read_loop(self._reader))
             keep_alive_task = asyncio.create_task(self._keep_alive_loop())
             try:
@@ -467,10 +484,24 @@ class FoxtronConnection:
             delay = min(self.MAX_RECONNECT_DELAY, delay * 2)
 
     async def _keep_alive_loop(self):
-        """Periodically sends a keep-alive frame to maintain the connection."""
+        """Periodically sends a keep-alive frame and watches for responses.
+
+        Returning from this loop makes the supervisor tear the connection
+        down and reconnect.
+        """
+        watchdog_timeout = self._keep_alive_interval * self.WATCHDOG_INTERVALS
         try:
             while True:
                 await asyncio.sleep(self._keep_alive_interval)
+                silence = asyncio.get_running_loop().time() - self._last_rx
+                if silence > watchdog_timeout:
+                    self._log.warning(
+                        "No data received for %.0f s (limit %.0f s); "
+                        "assuming connection is dead.",
+                        silence,
+                        watchdog_timeout,
+                    )
+                    return
                 self._log.debug("Sending keep-alive frame.")
                 await self.send_frame(self._keep_alive_frame)
         except asyncio.CancelledError:
@@ -487,6 +518,7 @@ class FoxtronConnection:
                 if not data:
                     self._log.warning("Connection closed by peer.")
                     return
+                self._last_rx = asyncio.get_running_loop().time()
                 buffer = await self._process_buffer(buffer + data)
         except asyncio.CancelledError:
             raise
@@ -551,6 +583,7 @@ class FoxtronDaliDriver:
             port,
             self._parse_and_queue_message,
             self._clear_pending_futures,
+            on_connect_callback=self._notify_connect_callbacks,
             keep_alive_interval=keep_alive_interval,
             reconnect_delay=reconnect_delay,
         )
@@ -565,7 +598,9 @@ class FoxtronDaliDriver:
         self._scan_cache: Optional[List[int]] = None
 
         # Callbacks to invoke on disconnect (e.g., to reset button states)
+        # and on (re)connect (e.g., to restore entity availability)
         self._disconnect_callbacks: list[Callable[[], None]] = []
+        self._connect_callbacks: list[Callable[[], None]] = []
 
     @property
     def is_connected(self) -> bool:
@@ -667,9 +702,43 @@ class FoxtronDaliDriver:
             except Exception:
                 self._log.exception("Error in disconnect callback")
 
-    def add_disconnect_callback(self, callback: Callable[[], None]) -> None:
-        """Register a callback to be invoked when the gateway disconnects."""
+    def add_disconnect_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register a callback invoked when the gateway disconnects.
+
+        Returns:
+            Unsubscribe function to remove the callback.
+        """
         self._disconnect_callbacks.append(callback)
+
+        def _unsub() -> None:
+            if callback in self._disconnect_callbacks:
+                self._disconnect_callbacks.remove(callback)
+
+        return _unsub
+
+    def add_connect_callback(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a callback invoked when the gateway (re)connects.
+
+        Returns:
+            Unsubscribe function to remove the callback.
+        """
+        self._connect_callbacks.append(callback)
+
+        def _unsub() -> None:
+            if callback in self._connect_callbacks:
+                self._connect_callbacks.remove(callback)
+
+        return _unsub
+
+    async def _notify_connect_callbacks(self) -> None:
+        """Invoke registered connect callbacks after a (re)connection."""
+        for cb in list(self._connect_callbacks):
+            try:
+                cb()
+            except Exception:
+                self._log.exception("Error in connect callback")
 
     async def _parse_and_queue_message(self, frame_content: bytes):
         """Parses a raw frame from the connection and queues it as a DaliEvent.
