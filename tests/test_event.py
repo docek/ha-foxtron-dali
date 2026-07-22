@@ -44,6 +44,9 @@ sys_modules = {
 class EventEntity:
     """Very small subset of HA's EventEntity used in tests."""
 
+    def async_on_remove(self, func):
+        return None
+
     async def async_added_to_hass(self):
         return None
 
@@ -71,9 +74,18 @@ class Bus:
 
     def __init__(self):
         self.events: list[tuple[str, dict]] = []
+        self.listeners: dict[str, list] = {}
 
     def async_fire(self, event_type: str, event_data: dict | None = None) -> None:
         self.events.append((event_type, event_data or {}))
+
+    def async_listen(self, event_type: str, listener):
+        self.listeners.setdefault(event_type, []).append(listener)
+
+        def _unsub() -> None:
+            self.listeners[event_type].remove(listener)
+
+        return _unsub
 
 
 class HomeAssistant:
@@ -131,6 +143,10 @@ class MockDriver:
 
     def __init__(self) -> None:
         self._callback = None
+        self._disconnect_callbacks: list = []
+
+    def add_disconnect_callback(self, callback) -> None:
+        self._disconnect_callbacks.append(callback)
 
     def add_event_listener(self, callback):
         self._callback = callback
@@ -150,6 +166,23 @@ class MockDriver:
 def _make_event(code: int) -> "_DINEvent":
     """Helper to create a DaliInputNotificationEvent with a fixed address."""
     return DaliInputNotificationEvent(bytes([0x02, 0x04, code]))
+
+
+@pytest.fixture(autouse=True)
+def switch_devices(monkeypatch):
+    """Replace the HA device registry with a fake backed by a plain list.
+
+    Tests can append fake paired-switch devices to the yielded list to make
+    them visible to DaliButton's device lookups.
+    """
+    devices: list = []
+    monkeypatch.setattr(event_module.dr, "async_get", lambda hass: MagicMock())
+    monkeypatch.setattr(
+        event_module.dr,
+        "async_entries_for_config_entry",
+        lambda registry, entry_id: devices,
+    )
+    yield devices
 
 
 @pytest_asyncio.fixture

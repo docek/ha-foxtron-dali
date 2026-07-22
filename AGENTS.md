@@ -7,7 +7,7 @@ This repository provides Home Assistant integration for Foxtron DALI gateways. F
 - The configured hooks run `ruff` for linting and formatting and `mypy` for type checking. Fix any reported issues.
 
 ## Testing
-- Execute the test suite with `pytest` before submitting changes.
+- Execute the test suite with `uv run --group test pytest` before submitting changes.
 
 ## Coding Style
 - Write Python using type hints and keep functions small and well documented.
