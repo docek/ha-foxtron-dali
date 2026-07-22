@@ -15,7 +15,8 @@ It handles:
 import asyncio
 import binascii
 import logging
-from typing import Awaitable, Callable, Dict, List, Optional
+from collections import deque
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 # --- Basic Logging Setup ---
 _LOGGER = logging.getLogger(__name__)
@@ -68,6 +69,13 @@ DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
 DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
+
+# --- Special Gateway Event Codes (Type 0x05 / config item 3) ---
+GW_EVENT_POWER_OK = 0
+GW_EVENT_POWER_LOSS = 1
+GW_EVENT_MAINS_ON_BUS = 2
+GW_EVENT_PSU_DEFECTIVE = 3
+GW_EVENT_BUFFER_FULL = 4
 
 # --- DALI Addressing ---
 DALI_BROADCAST = 0xFF  # Broadcast command frame (second byte is a command opcode)
@@ -224,11 +232,11 @@ class SpecialGatewayEvent(DaliEvent):
     """
 
     EVENT_MAP = {
-        0: "Valid DALI Power",
-        1: "DALI Power Loss",
-        2: "Mains Voltage on Bus",
-        3: "Defective Power Supply",
-        4: "Message Buffer Full",
+        GW_EVENT_POWER_OK: "Valid DALI Power",
+        GW_EVENT_POWER_LOSS: "DALI Power Loss",
+        GW_EVENT_MAINS_ON_BUS: "Mains Voltage on Bus",
+        GW_EVENT_PSU_DEFECTIVE: "Defective Power Supply",
+        GW_EVENT_BUFFER_FULL: "Message Buffer Full",
         5: "Checksum Error",
         6: "Invalid Command",
     }
@@ -595,6 +603,9 @@ class FoxtronDaliDriver:
         # Cache for results of bus scanning to avoid repeated full scans
         self._scan_cache: Optional[List[int]] = None
 
+        # Ring buffer of recent events for the diagnostics download
+        self._recent_events: deque[str] = deque(maxlen=25)
+
         # Callbacks to invoke on disconnect (e.g., to reset button states)
         # and on (re)connect (e.g., to restore entity availability)
         self._disconnect_callbacks: list[Callable[[], None]] = []
@@ -799,6 +810,7 @@ class FoxtronDaliDriver:
         if event:
             # Log the received event for debugging purposes
             self._log.debug("Received event: %r", event)
+            self._recent_events.append(repr(event))
 
             # Add the parsed event to the queue for the application to process
             await self._event_queue.put(event)
@@ -1172,6 +1184,21 @@ class FoxtronDaliDriver:
                 )
                 self._pending_config_queries.pop(item_number, None)
                 return None
+
+    def diagnostics_snapshot(self) -> Dict[str, Any]:
+        """Return a snapshot of driver state for the diagnostics download."""
+        return {
+            "is_connected": self.is_connected,
+            "scan_cache": (
+                list(self._scan_cache) if self._scan_cache is not None else None
+            ),
+            "pending_dali_queries": len(self._pending_dali_queries),
+            "pending_config_queries": len(self._pending_config_queries),
+            "event_listeners": len(self._event_listeners),
+            "connect_callbacks": len(self._connect_callbacks),
+            "disconnect_callbacks": len(self._disconnect_callbacks),
+            "recent_events": list(self._recent_events),
+        }
 
     async def query_firmware_version(self) -> Optional[str]:
         """Queries the firmware version of the gateway.

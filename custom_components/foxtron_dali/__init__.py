@@ -21,7 +21,7 @@ from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.LIGHT, Platform.EVENT]
+PLATFORMS = [Platform.LIGHT, Platform.EVENT, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
