@@ -7,6 +7,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import custom_components.foxtron_dali.light as light_module
 from custom_components.foxtron_dali.light import DaliLight
 from custom_components.foxtron_dali.driver import (
     DaliCommandEvent,
@@ -188,6 +189,59 @@ async def test_availability_follows_driver_connection():
     await refresh_tasks[0]
     assert light.is_on is True
     assert light.brightness == round(170 * 255 / 254)
+
+
+@pytest.mark.asyncio
+async def test_broadcast_service_updates_state_optimistically():
+    """The broadcast dispatcher signal flips is_on/brightness directly."""
+    light = _make_light()
+    light._handle_broadcast_state(True)
+    assert light.is_on is True
+    assert light.brightness == 255
+    light._handle_broadcast_state(False)
+    assert light.is_on is False
+    assert light.brightness == 0
+
+
+@pytest.mark.asyncio
+async def test_rescan_signal_adds_only_new_lights(monkeypatch):
+    """Regression: the scan_for_lights service must add newly found lights.
+
+    The old service called scan_for_devices() without refresh and discarded
+    the result, so new lights were never added after startup.
+    """
+    driver = MagicMock()
+    driver.scan_for_devices = AsyncMock(side_effect=[[1, 2], [1, 2, 3]])
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
+    entry.async_on_unload = MagicMock()
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"e1": driver}}
+    tasks = []
+    hass.async_create_task = lambda coro: tasks.append(coro)
+
+    added = []
+    captured = {}
+
+    def fake_dispatcher_connect(hass_, signal, target):
+        captured["rescan"] = target
+        return MagicMock()
+
+    monkeypatch.setattr(
+        light_module, "async_dispatcher_connect", fake_dispatcher_connect
+    )
+
+    await light_module.async_setup_entry(hass, entry, lambda ents: added.extend(ents))
+    await tasks[0]  # initial background scan
+    assert len(added) == 2
+    driver.scan_for_devices.assert_awaited_with(refresh=False)
+
+    await captured["rescan"]()  # scan_for_lights service fires the signal
+    assert len(added) == 3
+    assert added[-1]._address == 3
+    driver.scan_for_devices.assert_awaited_with(refresh=True)
 
 
 @pytest.mark.asyncio

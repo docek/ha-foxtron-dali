@@ -4,11 +4,12 @@ from typing import Any, Optional, Callable
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, SIGNAL_BROADCAST_STATE, SIGNAL_RESCAN
 from .driver import (
     FoxtronDaliDriver,
     DaliCommandEvent,
@@ -30,16 +31,26 @@ async def async_setup_entry(
     """Set up the DALI lights from a config entry."""
     driver: FoxtronDaliDriver = hass.data[DOMAIN][entry.entry_id]
 
-    async def _scan_and_add() -> None:
-        """Scan the bus and add discovered lights."""
+    known_addresses: set[int] = set()
+
+    async def _scan_and_add(refresh: bool = False) -> None:
+        """Scan the bus and add newly discovered lights."""
         # The connection is established by async_setup_entry before the
         # platforms are forwarded; the scan itself runs in the background
         # so it doesn't block startup.
-        addresses = await driver.scan_for_devices()
-        lights = [DaliLight(driver, addr, entry) for addr in addresses]
-        async_add_entities(lights)
+        addresses = await driver.scan_for_devices(refresh=refresh)
+        new = [addr for addr in addresses if addr not in known_addresses]
+        known_addresses.update(new)
+        if new:
+            async_add_entities([DaliLight(driver, addr, entry) for addr in new])
 
     hass.async_create_task(_scan_and_add())
+
+    async def _rescan() -> None:
+        """Rescan on demand (scan_for_lights service)."""
+        await _scan_and_add(refresh=True)
+
+    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_RESCAN, _rescan))
 
 
 class DaliLight(LightEntity):
@@ -119,6 +130,11 @@ class DaliLight(LightEntity):
         self.async_on_remove(
             self._driver.add_connect_callback(self._handle_driver_connect)
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_BROADCAST_STATE, self._handle_broadcast_state
+            )
+        )
         await self.async_update()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -126,6 +142,17 @@ class DaliLight(LightEntity):
         if self._unsub:
             self._unsub()
         await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_broadcast_state(self, is_on: bool) -> None:
+        """Apply optimistic state after a broadcast_on/off service call.
+
+        Our own commands come back from the gateway as confirmations, not
+        as bus events, so broadcasts wouldn't update entity state otherwise.
+        """
+        self._is_on = is_on
+        self._brightness = 255 if is_on else 0
+        self.async_write_ha_state()
 
     def _handle_driver_disconnect(self) -> None:
         """Mark the light unavailable while the gateway is disconnected."""

@@ -63,7 +63,8 @@ EVENT_BUTTON_FREE = 0x08
 DALI_CMD_OFF = 0x00
 DALI_CMD_RECALL_MAX_LEVEL = 0x05
 DALI_CMD_SET_FADE_TIME = 0x2F
-DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x90
+DALI_CMD_QUERY_STATUS = 0x90
+DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
 DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
@@ -1042,11 +1043,14 @@ class FoxtronDaliDriver:
         approx_time = fade_time_map.get(fade_code, "Unknown")
         self._log.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
 
-        # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME
+        # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME.
+        # SET FADE TIME is a configuration command (IEC 62386-102, opcode
+        # 0x20-0x80 range) and must be received twice within 100 ms — the
+        # gateway handles the double transmission via the send-twice param.
         await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
         await asyncio.sleep(0.1)  # Small delay for gateway processing
         await self.send_dali_command(
-            DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=False
+            DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=True
         )
 
     async def broadcast_off(self):
@@ -1081,10 +1085,17 @@ class FoxtronDaliDriver:
         await self.send_dali_command(address_byte, opcode_byte, send_twice=False)
 
     async def _scan_address(self, addr: int) -> Optional[int]:
-        """Helper to query a single address for a present device."""
+        """Helper to query a single address for a present device.
+
+        No retries: present gear answers the first query within ~20 ms, and
+        retrying empty addresses only slows the scan down (~1 s per absent
+        address instead of 0.2 s).
+        """
         address_byte = (addr * 2) + 1
         opcode_byte = DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
-        return await self.send_dali_query(address_byte, opcode_byte, timeout=0.2)
+        return await self.send_dali_query(
+            address_byte, opcode_byte, timeout=0.2, retries=0
+        )
 
     async def scan_for_devices(self, refresh: bool = False) -> List[int]:
         """Scans the DALI bus for control gear (lights).
@@ -1100,21 +1111,12 @@ class FoxtronDaliDriver:
 
         self._log.info("Starting DALI bus scan for control gear (lights)...")
         found_devices: List[int] = []
-        batch_size = 8
-        for batch_start in range(0, 64, batch_size):
-            tasks = [
-                self._scan_address(addr)
-                for addr in range(batch_start, min(batch_start + batch_size, 64))
-            ]
-            results = await asyncio.gather(*tasks)
-            for idx, response in enumerate(results):
-                if response is not None:
-                    addr = batch_start + idx
-                    self._log.debug(
-                        f"Found control gear (light) at short address {addr}!"
-                    )
-                    found_devices.append(addr)
-            await asyncio.sleep(0)
+        # Queries are serialized by the query lock anyway, so a plain
+        # sequential loop is as fast as any batching.
+        for addr in range(64):
+            if await self._scan_address(addr) is not None:
+                self._log.debug(f"Found control gear (light) at short address {addr}!")
+                found_devices.append(addr)
 
         if not self._connection.is_connected:
             # A scan interrupted by a disconnect would cache an incomplete

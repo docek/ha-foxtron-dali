@@ -9,8 +9,14 @@ from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import CONNECT_TIMEOUT_SECONDS, DOMAIN
+from .const import (
+    CONNECT_TIMEOUT_SECONDS,
+    DOMAIN,
+    SIGNAL_BROADCAST_STATE,
+    SIGNAL_RESCAN,
+)
 from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,12 +73,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Executing broadcast_on for all configured DALI buses")
             for driver in hass.data[DOMAIN].values():
                 await driver.broadcast_on()
+            # Own commands return as confirmations, not bus events, so
+            # update the light entities optimistically.
+            async_dispatcher_send(hass, SIGNAL_BROADCAST_STATE, True)
 
         async def handle_broadcast_off(call: ServiceCall) -> None:
             """Handle the broadcast_off service call for all buses."""
             _LOGGER.info("Executing broadcast_off for all configured DALI buses")
             for driver in hass.data[DOMAIN].values():
                 await driver.broadcast_off()
+            async_dispatcher_send(hass, SIGNAL_BROADCAST_STATE, False)
 
         async def handle_set_fade_time(call: ServiceCall) -> None:
             """Handle the set_fade_time service call for all buses."""
@@ -86,8 +96,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def handle_scan_for_lights(call: ServiceCall) -> None:
             """Handle the scan_for_lights service call for all buses."""
             _LOGGER.info("Executing scan_for_lights for all configured DALI buses")
-            for driver in hass.data[DOMAIN].values():
-                await driver.scan_for_devices()
+            # Each light platform rescans its bus (with a cache refresh)
+            # and adds any newly discovered lights.
+            async_dispatcher_send(hass, SIGNAL_RESCAN)
 
         async def handle_remove_paired_switch(call: ServiceCall) -> None:
             """Remove a paired DALI switch device created by this integration."""

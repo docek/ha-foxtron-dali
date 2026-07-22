@@ -32,6 +32,58 @@ def test_calculate_checksum_and_build_frame():
     assert FoxtronMessage.build_frame(payload) == expected_frame
 
 
+def test_set_fade_time_sends_config_command_twice():
+    """SET FADE TIME is a DALI config command and must be sent twice."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte, send_twice))
+
+        driver_instance.send_dali_command = fake_send
+        await driver_instance.set_fade_time(4)
+
+        assert calls[0] == (driver.DALI_CMD_DTR0, 4, False)
+        assert calls[1] == (
+            driver.DALI_BROADCAST,
+            driver.DALI_CMD_SET_FADE_TIME,
+            True,
+        )
+
+    asyncio.run(run_test())
+
+
+def test_scan_uses_presence_query_without_retries():
+    """The bus scan probes all 64 addresses with QUERY CONTROL GEAR PRESENT
+    (0x91) and no retries, and skips caching while disconnected."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        seen = []
+
+        async def fake_query(
+            address_byte, opcode_byte, timeout=0.5, retries=2, backoff=0.1
+        ):
+            seen.append((address_byte, opcode_byte, retries))
+            return 0xFF if address_byte == (5 * 2) + 1 else None
+
+        driver_instance.send_dali_query = fake_query
+        result = await driver_instance.scan_for_devices()
+
+        assert result == [5]
+        assert len(seen) == 64
+        assert all(
+            opcode == driver.DALI_CMD_QUERY_CONTROL_GEAR_PRESENT and retries == 0
+            for _, opcode, retries in seen
+        )
+        # Not connected -> the (possibly incomplete) result is not cached
+        assert driver_instance._scan_cache is None
+
+    asyncio.run(run_test())
+
+
 def test_parse_and_queue_message_events():
     """Feed sample frames and ensure events are queued."""
 
