@@ -22,3 +22,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # brands requires publishing assets to home-assistant/brands,
+          # which is only relevant for public HACS default distribution
+          ignore: brands
