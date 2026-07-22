@@ -1,17 +1,16 @@
 """The Foxtron DALI integration."""
 
 import asyncio
-import contextlib
 import logging
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 
-from .const import DOMAIN
+from .const import CONNECT_TIMEOUT_SECONDS, DOMAIN
 from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +34,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     driver = FoxtronDaliDriver(host, port)
 
+    # Fail fast if the gateway is unreachable: Home Assistant retries the
+    # setup with increasing intervals until the gateway comes online (e.g.
+    # after a power outage where HA boots faster than the gateway).
+    await driver.connect()
+    if not await driver.wait_connected(CONNECT_TIMEOUT_SECONDS):
+        await driver.disconnect()
+        raise ConfigEntryNotReady(f"Cannot connect to Foxtron gateway at {host}:{port}")
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = driver
 
     # Create a device for the DALI bus
@@ -46,15 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         manufacturer="Foxtron",
     )
 
-    # Start connection in background so light services register quickly
-    connect_task = hass.async_create_task(driver.connect())
-    driver.connect_task = connect_task
-
-    async def _post_connect() -> None:
-        await connect_task
-        await driver.set_fade_time(fade_time)
-
-    hass.async_create_task(_post_connect())
+    await driver.set_fade_time(fade_time)
 
     # Set up the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -141,11 +140,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         driver: FoxtronDaliDriver = hass.data[DOMAIN].pop(entry.entry_id)
-        connect_task = getattr(driver, "connect_task", None)
-        if connect_task:
-            connect_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await connect_task
         await driver.disconnect()
 
         # If this was the last configured entry, clean up the global services

@@ -28,5 +28,9 @@ FLAPS = ["upper", "lower"]
 # Fixed discovery pairing duration (seconds)
 DISCOVERY_DURATION_SECONDS = 300
 
+# How long async_setup_entry waits for the initial gateway connection
+# before raising ConfigEntryNotReady (Home Assistant then retries setup)
+CONNECT_TIMEOUT_SECONDS = 10.0
+
 # Safety: Maximum duration for a long press before auto-cancelling (seconds)
 MAX_LONG_PRESS_DURATION = 30.0

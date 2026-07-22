@@ -322,14 +322,14 @@ class FoxtronMessage:
 class FoxtronConnection:
     """Manages the low-level asyncio TCP connection, framing, and keep-alive.
 
-    This class is responsible for:
-    - Establishing and maintaining the TCP connection.
-    - Automatically reconnecting with exponential backoff if the connection is lost.
-    - Running a read loop to receive data and identify complete frames (SOH...ETB).
-    - Running a keep-alive loop to prevent the gateway from closing the connection.
-    - Calling back to the main driver when a complete message is received or when
-      the connection is lost.
+    A single supervisor task owns the whole connection lifecycle: it
+    connects, runs the read and keep-alive loops, and on any failure tears
+    the connection down and retries with exponential backoff (doubling up
+    to 60 s). Initial connection failures are retried the same way, so the
+    connection recovers even when the gateway is offline at startup.
     """
+
+    MAX_RECONNECT_DELAY = 60.0
 
     def __init__(
         self,
@@ -337,7 +337,8 @@ class FoxtronConnection:
         port: int,
         on_message_callback: Callable[[bytes], Awaitable[None]],
         on_disconnect_callback: Callable[[], Awaitable[None]],
-        keep_alive_interval: int = KEEP_ALIVE_INTERVAL,
+        keep_alive_interval: float = KEEP_ALIVE_INTERVAL,
+        reconnect_delay: float = 1.0,
     ):
         """Initializes the FoxtronConnection."""
         self._host = host
@@ -349,60 +350,45 @@ class FoxtronConnection:
         # Pre-build the keep-alive frame (a query for firmware version)
         keep_alive_payload = bytes([MSG_TYPE_QUERY_CONFIG_ITEM, 0x02])
         self._keep_alive_frame = FoxtronMessage.build_frame(keep_alive_payload)
+        self._initial_reconnect_delay = reconnect_delay
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
-        self._receive_task: Optional[asyncio.Task] = None
-        self._keep_alive_task: Optional[asyncio.Task] = None
-        self._is_connected = False
-        self._reconnect_delay = 1  # Initial reconnect delay in seconds
-        self._disconnect_lock = asyncio.Lock()
+        self._supervisor_task: Optional[asyncio.Task] = None
+        self._connected_event = asyncio.Event()
+
+    @property
+    def is_connected(self) -> bool:
+        """Return True while the TCP connection is established."""
+        return self._connected_event.is_set()
 
     async def connect(self):
-        """Establishes a connection to the gateway and starts background tasks."""
-        if self._is_connected:
-            return
-        self._log.info(f"Connecting to Foxtron gateway at {self._host}:{self._port}")
+        """Start the connection supervisor (idempotent)."""
+        if self._supervisor_task is None or self._supervisor_task.done():
+            self._supervisor_task = asyncio.create_task(self._supervise())
+
+    async def wait_connected(self, timeout: float) -> bool:
+        """Wait until the connection is established.
+
+        Returns:
+            True if connected within ``timeout`` seconds, False otherwise.
+        """
         try:
-            self._reader, self._writer = await asyncio.open_connection(
-                self._host, self._port
-            )
-            self._is_connected = True
-            self._reconnect_delay = 1  # Reset reconnect delay on successful connection
-            self._log.info("Connection established.")
-            # Start the background tasks for reading and sending keep-alives
-            self._receive_task = asyncio.create_task(self._read_loop())
-            self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
-        except (ConnectionRefusedError, OSError) as e:
-            self._log.error(f"Failed to connect to {self._host}:{self._port}: {e}")
-            await self._handle_disconnect()
+            await asyncio.wait_for(self._connected_event.wait(), timeout)
+        except asyncio.TimeoutError:
+            return False
+        return True
 
     async def disconnect(self):
-        """Gracefully disconnects from the gateway and cleans up tasks."""
-        if not self._is_connected:
+        """Stop the supervisor and close the connection."""
+        if self._supervisor_task is None:
             return
         self._log.info("Disconnecting from gateway.")
-        self._is_connected = False
-        # Cancel and await the background tasks
-        for task in [self._keep_alive_task, self._receive_task]:
-            if task and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        # Close the stream writer
-        if self._writer:
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except ConnectionResetError:
-                pass  # Ignore reset error during intentional disconnect
-        self._reader, self._writer, self._receive_task, self._keep_alive_task = (
-            None,
-            None,
-            None,
-            None,
-        )
+        self._supervisor_task.cancel()
+        try:
+            await self._supervisor_task
+        except asyncio.CancelledError:
+            pass
+        self._supervisor_task = None
 
     async def send_frame(self, frame: bytes):
         """Sends a pre-built frame to the gateway.
@@ -413,89 +399,129 @@ class FoxtronConnection:
         Raises:
             ConnectionError: If the connection is not active.
         """
-        if not self._is_connected or not self._writer:
+        if not self.is_connected or not self._writer:
             raise ConnectionError("Cannot send frame, not connected.")
         self._log.debug(f"Sending frame: {frame!r}")
         self._writer.write(frame)
         await self._writer.drain()
 
+    async def _supervise(self):
+        """Own the connection lifecycle: connect, run, tear down, retry."""
+        delay = self._initial_reconnect_delay
+        while True:
+            self._log.info(
+                f"Connecting to Foxtron gateway at {self._host}:{self._port}"
+            )
+            try:
+                self._reader, self._writer = await asyncio.open_connection(
+                    self._host, self._port
+                )
+            except OSError as e:
+                self._log.warning(
+                    "Failed to connect to %s:%s: %s. Retrying in %.0f s.",
+                    self._host,
+                    self._port,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(self.MAX_RECONNECT_DELAY, delay * 2)
+                continue
+
+            self._log.info("Connection established.")
+            delay = self._initial_reconnect_delay
+            self._connected_event.set()
+            read_task = asyncio.create_task(self._read_loop(self._reader))
+            keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+            try:
+                # Either loop finishing (peer close, socket error, keep-alive
+                # failure) means the connection is gone.
+                await asyncio.wait(
+                    {read_task, keep_alive_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                self._connected_event.clear()
+                for task in (read_task, keep_alive_task):
+                    if not task.done():
+                        task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        self._log.exception("Connection task failed")
+                writer = self._writer
+                self._reader, self._writer = None, None
+                if writer is not None:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except (OSError, ConnectionError):
+                        pass
+                # Fail pending queries and reset dependent state (buttons)
+                await self._on_disconnect_callback()
+
+            self._log.info(f"Connection lost. Reconnecting in {delay:.0f} s.")
+            await asyncio.sleep(delay)
+            delay = min(self.MAX_RECONNECT_DELAY, delay * 2)
+
     async def _keep_alive_loop(self):
         """Periodically sends a keep-alive frame to maintain the connection."""
-        while self._is_connected:
-            try:
+        try:
+            while True:
                 await asyncio.sleep(self._keep_alive_interval)
                 self._log.debug("Sending keep-alive frame.")
                 await self.send_frame(self._keep_alive_frame)
-            except asyncio.CancelledError:
-                break  # Task was cancelled, exit loop
-            except Exception as e:
-                self._log.error(f"Error in keep-alive loop: {e}")
-                await self._handle_disconnect()
-                break
-        self._log.debug("Keep-alive loop terminated.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._log.error(f"Keep-alive failed: {e}")
 
-    async def _read_loop(self):
+    async def _read_loop(self, reader: asyncio.StreamReader):
         """Continuously reads from the TCP socket and processes incoming frames."""
         buffer = b""
-        while self._is_connected and self._reader:
-            try:
-                # Read a chunk of data
-                data = await self._reader.read(1024)
+        try:
+            while True:
+                data = await reader.read(1024)
                 if not data:
                     self._log.warning("Connection closed by peer.")
-                    await self._handle_disconnect()
-                    break
+                    return
+                buffer = await self._process_buffer(buffer + data)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._log.error(f"Read loop error: {e}")
 
-                buffer += data
+    async def _process_buffer(self, buffer: bytes) -> bytes:
+        """Extract and handle all complete frames (SOH...ETB) in the buffer."""
+        while True:
+            soh_index = buffer.find(SOH)
+            if soh_index == -1:
+                last_etb = buffer.rfind(ETB)
+                if last_etb != -1:
+                    buffer = buffer[last_etb + 1 :]
+                return buffer
 
-                # Process all complete frames (SOH...ETB) in the buffer
-                while True:
-                    soh_index = buffer.find(SOH)
-                    if soh_index == -1:
-                        last_etb = buffer.rfind(ETB)
-                        if last_etb != -1:
-                            buffer = buffer[last_etb + 1 :]
-                        break
+            etb_index = buffer.find(ETB, soh_index + 1)
+            if etb_index == -1:
+                return buffer  # Need more data
 
-                    etb_index = buffer.find(ETB, soh_index + 1)
-                    if etb_index == -1:
-                        break  # Need more data
+            frame_content = buffer[soh_index + 1 : etb_index]
+            buffer = buffer[etb_index + 1 :]
 
-                    frame_content = buffer[soh_index + 1 : etb_index]
+            if len(frame_content) % 2 != 0 or any(
+                c not in b"0123456789ABCDEFabcdef" for c in frame_content
+            ):
+                self._log.warning(f"Discarding non-hex frame: {frame_content!r}")
+                continue
 
-                    if len(frame_content) % 2 != 0 or any(
-                        c not in b"0123456789ABCDEFabcdef" for c in frame_content
-                    ):
-                        self._log.warning(
-                            f"Discarding non-hex frame: {frame_content!r}"
-                        )
-                        buffer = buffer[etb_index + 1 :]
-                        continue
-
-                    asyncio.create_task(self._on_message_callback(frame_content))
-                    buffer = buffer[etb_index + 1 :]
-            except asyncio.CancelledError:
-                break  # Task was cancelled, exit loop
-            except Exception as e:
-                self._log.error(f"Read loop error: {e}")
-                await self._handle_disconnect()
-                break
-        self._log.debug("Read loop terminated.")
-
-    async def _handle_disconnect(self):
-        """Handles the disconnection logic, including initiating a reconnect."""
-        async with self._disconnect_lock:
-            if not self._is_connected:
-                return  # Already handling disconnect
-            await self.disconnect()
-            await self._on_disconnect_callback()
-            self._log.info(
-                f"Will attempt to reconnect in {self._reconnect_delay} seconds."
-            )
-            await asyncio.sleep(self._reconnect_delay)
-            # Implement exponential backoff for reconnect attempts
-            self._reconnect_delay = min(60, self._reconnect_delay * 2)
-            asyncio.create_task(self.connect())
+            # Handle frames synchronously to preserve ordering; a malformed
+            # frame must not kill the read loop.
+            try:
+                await self._on_message_callback(frame_content)
+            except Exception:
+                self._log.exception("Error handling frame %r", frame_content)
 
 
 # --- Main Driver Class ---
@@ -510,7 +536,8 @@ class FoxtronDaliDriver:
         self,
         host: str,
         port: int = 23,
-        keep_alive_interval: int = KEEP_ALIVE_INTERVAL,
+        keep_alive_interval: float = KEEP_ALIVE_INTERVAL,
+        reconnect_delay: float = 1.0,
     ):
         """Initializes the FoxtronDaliDriver.
 
@@ -525,6 +552,7 @@ class FoxtronDaliDriver:
             self._parse_and_queue_message,
             self._clear_pending_futures,
             keep_alive_interval=keep_alive_interval,
+            reconnect_delay=reconnect_delay,
         )
         self._event_queue: asyncio.Queue[DaliEvent] = asyncio.Queue()
         self._event_listeners: list[Callable[[DaliEvent], Awaitable[None] | None]] = []
@@ -539,14 +567,24 @@ class FoxtronDaliDriver:
         # Callbacks to invoke on disconnect (e.g., to reset button states)
         self._disconnect_callbacks: list[Callable[[], None]] = []
 
-        # Task created by the integration to establish the initial connection
-        self.connect_task: asyncio.Task | None = None
+    @property
+    def is_connected(self) -> bool:
+        """Return True while the gateway connection is established."""
+        return self._connection.is_connected
 
     async def connect(self):
-        """Connects to the gateway."""
+        """Start connecting to the gateway (retries in the background)."""
         await self._connection.connect()
         if self._event_dispatch_task is None:
             self._event_dispatch_task = asyncio.create_task(self._event_dispatcher())
+
+    async def wait_connected(self, timeout: float) -> bool:
+        """Wait until the gateway connection is established.
+
+        Returns:
+            True if connected within ``timeout`` seconds, False otherwise.
+        """
+        return await self._connection.wait_connected(timeout)
 
     async def disconnect(self):
         """Disconnects from the gateway."""
@@ -1008,6 +1046,12 @@ class FoxtronDaliDriver:
                     )
                     found_devices.append(addr)
             await asyncio.sleep(0)
+
+        if not self._connection.is_connected:
+            # A scan interrupted by a disconnect would cache an incomplete
+            # (typically empty) device list; report it but don't cache it.
+            self._log.warning("Bus scan interrupted by disconnect; not caching.")
+            return found_devices
 
         self._scan_cache = found_devices
         return found_devices

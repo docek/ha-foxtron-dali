@@ -8,7 +8,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 
 
-from .const import DISCOVERY_DURATION_SECONDS, DOMAIN
+from .const import CONNECT_TIMEOUT_SECONDS, DISCOVERY_DURATION_SECONDS, DOMAIN
 from .driver import FoxtronDaliDriver
 from .event import (
     DEFAULT_LONG_PRESS_THRESHOLD,
@@ -47,15 +47,21 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
                 driver = FoxtronDaliDriver(
                     host=user_input[CONF_HOST], port=user_input[CONF_PORT]
                 )
-                await driver.connect()
-                firmware_version = await driver.query_firmware_version()
-                if firmware_version is None:
-                    raise ConnectionError("Could not retrieve firmware version")
+                try:
+                    await driver.connect()
+                    if not await driver.wait_connected(CONNECT_TIMEOUT_SECONDS):
+                        raise ConnectionError("Connection timed out")
+                    firmware_version = await driver.query_firmware_version()
+                    if firmware_version is None:
+                        raise ConnectionError("Could not retrieve firmware version")
+                finally:
+                    # Always stop the driver so a failed attempt doesn't
+                    # keep retrying in the background.
+                    await driver.disconnect()
 
                 _LOGGER.info(
                     f"Successfully connected to Foxtron gateway with firmware {firmware_version}"
                 )
-                await driver.disconnect()
 
                 return self.async_create_entry(
                     title=f"DALI Bus ({user_input[CONF_HOST]}:{user_input[CONF_PORT]})",

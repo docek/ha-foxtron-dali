@@ -30,11 +30,9 @@ async def async_setup_entry(
 
     async def _scan_and_add() -> None:
         """Scan the bus and add discovered lights."""
-        connect_task = getattr(driver, "connect_task", None)
-        if connect_task:
-            await connect_task
-        else:
-            await driver.connect()
+        # The connection is established by async_setup_entry before the
+        # platforms are forwarded; the scan itself runs in the background
+        # so it doesn't block startup.
         addresses = await driver.scan_for_devices()
         lights = [DaliLight(driver, addr, entry) for addr in addresses]
         async_add_entities(lights)
