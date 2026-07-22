@@ -22,6 +22,7 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
     }
 )
 
+
 async def async_get_triggers(
     hass: HomeAssistant, device_id: str
 ) -> list[dict[str, str]]:
@@ -39,7 +40,7 @@ async def async_get_triggers(
         if identifier[0] == DOMAIN and "dali4sw" in identifier[1]:
             is_switch = True
             break
-            
+
     if not is_switch:
         return []
 
@@ -65,7 +66,7 @@ async def async_attach_trigger(
     """Attach a trigger."""
     # HA UI konfigurace obsahuje CONF_TYPE ("upper_short_press" atd.)
     trigger_type = config[CONF_TYPE]
-    
+
     # Rozebereme na flap a press_type
     flap = "upper" if trigger_type.startswith("upper_") else "lower"
     press_type = trigger_type.replace("upper_", "").replace("lower_", "")

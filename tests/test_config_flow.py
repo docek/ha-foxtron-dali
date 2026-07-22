@@ -3,18 +3,8 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch, call
 
 import pytest
-from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import FlowResultType
-
-if not hasattr(config_entries, "OptionsFlowWithReload"):
-
-    class OptionsFlowWithReload(config_entries.OptionsFlow):
-        """Fallback OptionsFlowWithReload for older Home Assistant."""
-
-        pass
-
-    config_entries.OptionsFlowWithReload = OptionsFlowWithReload
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -87,9 +77,11 @@ async def test_options_update_applies_globally():
     entry1 = MagicMock(entry_id="1", options={})
     entry2 = MagicMock(entry_id="2", options={})
     hass.config_entries.async_entries.return_value = [entry1, entry2]
+    hass.config_entries.async_get_known_entry = MagicMock(return_value=entry1)
 
-    options_flow = config_flow.FoxtronDaliOptionsFlowHandler(entry1)
+    options_flow = config_flow.FoxtronDaliOptionsFlowHandler()
     options_flow.hass = hass
+    options_flow.handler = "1"  # entry_id; config_entry resolves through hass
 
     result = await options_flow.async_step_set_fade_time({"fade_time": 5})
     assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -110,8 +102,7 @@ async def test_start_discovery_uses_fixed_duration():
     hass = MagicMock()
     hass.bus.async_fire = MagicMock()
 
-    entry = MagicMock()
-    options_flow = config_flow.FoxtronDaliOptionsFlowHandler(entry)
+    options_flow = config_flow.FoxtronDaliOptionsFlowHandler()
     options_flow.hass = hass
 
     result = await options_flow.async_step_start_discovery()

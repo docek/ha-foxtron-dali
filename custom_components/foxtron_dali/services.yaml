@@ -1,11 +1,13 @@
 scan_for_lights:
-  description: Scans the DALI bus for new lights and adds them to Home Assistant.
-  fields: {}
+  name: Scan for lights
+  description: Rescans all DALI buses and adds newly discovered lights to Home Assistant.
 
 remove_paired_switch:
+  name: Remove paired switch
   description: Removes a paired DALI switch device created by this integration.
   fields:
     device_id:
+      name: Device ID
       description: Home Assistant device registry ID of the paired DALI switch to remove.
       example: 1f4e855932f7bf9a3a13cec00c5a511
       required: true
@@ -13,21 +15,22 @@ remove_paired_switch:
         text:
 
 broadcast_on:
-  description: Turns on all lights on the DALI bus to their maximum level.
-  fields: {}
+  name: Broadcast on
+  description: Turns on all lights on all DALI buses to their maximum level.
 
 broadcast_off:
-  description: Turns off all lights on the DALI bus.
-  fields: {}
+  name: Broadcast off
+  description: Turns off all lights on all DALI buses.
 
 set_fade_time:
-  description: Sets the DALI fade time for all devices on the bus.
+  name: Set fade time
+  description: Sets the DALI fade time for all devices on all buses.
   fields:
     fade_time:
+      name: Fade time
       description: A DALI fade code (0-15).
       example: 10
       selector:
         number:
           min: 0
           max: 15
-

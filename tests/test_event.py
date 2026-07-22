@@ -154,6 +154,16 @@ class MockDriver:
 
         return _unsub
 
+    def add_connect_callback(self, callback):
+        self._connect_callbacks = getattr(self, "_connect_callbacks", [])
+        self._connect_callbacks.append(callback)
+
+        def _unsub() -> None:
+            if callback in self._connect_callbacks:
+                self._connect_callbacks.remove(callback)
+
+        return _unsub
+
     def add_event_listener(self, callback):
         self._callback = callback
 
@@ -202,6 +212,7 @@ async def button():
     driver = MockDriver()
     button = DaliButton(entry, driver)
     button.hass = hass
+    button.async_write_ha_state = MagicMock()
     await button.async_added_to_hass()
     yield button
     await button.async_will_remove_from_hass()
@@ -310,6 +321,7 @@ async def test_button_event_does_not_store_options():
     driver = MockDriver()
     button = DaliButton(entry, driver)
     button.hass = hass
+    button.async_write_ha_state = MagicMock()
     await button.async_added_to_hass()
     button._multi_press_window = 0.01
     await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
@@ -401,6 +413,15 @@ async def test_no_device_trigger_without_paired_device(button):
 
     fired = [e for e, _ in button.hass.bus.events]
     assert event_module.EVENT_BUTTON_ACTION not in fired
+
+
+@pytest.mark.asyncio
+async def test_button_availability_follows_driver(button):
+    """The event entity goes unavailable on disconnect and back on connect."""
+    button._handle_driver_disconnect()
+    assert button.available is False
+    button._handle_driver_connect()
+    assert button.available is True
 
 
 @pytest.mark.asyncio

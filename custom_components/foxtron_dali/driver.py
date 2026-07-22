@@ -165,8 +165,6 @@ class DaliInputNotificationEvent(DaliEvent):
         event_code (int): The DALI-2 event code (e.g., button pressed, released).
         address_type (str): The type of addressing used ("Short", "Group", "Broadcast").
         address (Optional[int]): The short or group address, if applicable.
-        device_type (int): Device type extracted from the instance byte.
-        flags (int): Additional flag bits from the instance byte.
     """
 
     def __init__(self, raw_payload: bytes):
@@ -197,10 +195,9 @@ class DaliInputNotificationEvent(DaliEvent):
             self.address_type = "Unknown"
             self.address = None
 
-        # Decode the instance byte according to IEC 62386-301
+        # Instance number lives in bits 6-2 of the instance byte (verified
+        # against DALI4SW hardware: SW1-SW4 -> instances 0-3).
         self.instance_number = (instance_byte & 0x7C) >> 2
-        self.device_type = instance_byte >> 6
-        self.flags = instance_byte & 0x03
 
     def __repr__(self):
         """Return a string representation of the input notification event."""
@@ -475,7 +472,7 @@ class FoxtronConnection:
                     writer.close()
                     try:
                         await writer.wait_closed()
-                    except (OSError, ConnectionError):
+                    except OSError, ConnectionError:
                         pass
                 # Fail pending queries and reset dependent state (buttons)
                 await self._on_disconnect_callback()

@@ -19,8 +19,7 @@ from .event import (
 _LOGGER = logging.getLogger(__name__)
 
 
-@config_entries.HANDLERS.register(DOMAIN)
-class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
+class FoxtronDaliConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle a config flow for Foxtron DALI."""
 
     VERSION = 1
@@ -31,7 +30,7 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
         config_entry: config_entries.ConfigEntry,
     ) -> "FoxtronDaliOptionsFlowHandler":
         """Get the options flow for this handler."""
-        return FoxtronDaliOptionsFlowHandler(config_entry)
+        return FoxtronDaliOptionsFlowHandler()
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         """Handle the initial step."""
@@ -67,7 +66,7 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
                     title=f"DALI Bus ({user_input[CONF_HOST]}:{user_input[CONF_PORT]})",
                     data=user_input,
                 )
-            except (asyncio.TimeoutError, ConnectionRefusedError, ConnectionError):
+            except asyncio.TimeoutError, ConnectionRefusedError, ConnectionError:
                 errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
@@ -85,12 +84,11 @@ class FoxtronDaliConfigFlow(config_entries.ConfigFlow):
         )
 
 
-class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlowWithConfigEntry):
-    """Handle an options flow for Foxtron DALI."""
+class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle an options flow for Foxtron DALI.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize Foxtron DALI options flow."""
-        super().__init__(config_entry=config_entry)
+    ``self.config_entry`` is provided by the OptionsFlow base class.
+    """
 
     async def _async_update_all_entries(self, new_options: Dict[str, Any]) -> None:
         """Update options for all config entries in this domain."""

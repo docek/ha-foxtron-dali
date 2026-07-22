@@ -71,8 +71,16 @@ class DaliLight(LightEntity):
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._brightness: Optional[int] = None
+        self._last_on_brightness: Optional[int] = None
         self._is_on = False
         self._unsub: Callable[[], None] | None = None
+
+    def _apply_level(self, brightness: int) -> None:
+        """Set brightness/is_on and remember the last non-zero level."""
+        self._brightness = brightness
+        self._is_on = brightness > 0
+        if brightness > 0:
+            self._last_on_brightness = brightness
 
     @property
     def name(self) -> str:
@@ -104,20 +112,21 @@ class DaliLight(LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
-        brightness = kwargs.get(ATTR_BRIGHTNESS, 255)
+        brightness = kwargs.get(ATTR_BRIGHTNESS)
+        if brightness is None:
+            # HA convention: restore the last known brightness, full as fallback
+            brightness = self._last_on_brightness or 255
         # Scale HA brightness (0-255) to DALI level (0-254)
         dali_level = round(brightness * 254 / 255)
 
         await self._driver.set_device_level(self._address, dali_level)
-        self._is_on = True
-        self._brightness = brightness
+        self._apply_level(brightness)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         await self._driver.set_device_level(self._address, 0)
-        self._is_on = False
-        self._brightness = 0
+        self._apply_level(0)
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -150,8 +159,7 @@ class DaliLight(LightEntity):
         Our own commands come back from the gateway as confirmations, not
         as bus events, so broadcasts wouldn't update entity state otherwise.
         """
-        self._is_on = is_on
-        self._brightness = 255 if is_on else 0
+        self._apply_level(255 if is_on else 0)
         self.async_write_ha_state()
 
     def _handle_driver_disconnect(self) -> None:
@@ -175,12 +183,10 @@ class DaliLight(LightEntity):
         """Fetch new state data for this light."""
         level = await self._driver.query_actual_level(self._address)
         if level is not None:
-            self._is_on = level > 0
             # Scale DALI level (0-254) to HA brightness (0-255)
-            self._brightness = round(level * 255 / 254)
+            self._apply_level(round(level * 255 / 254))
         else:
-            self._is_on = False
-            self._brightness = 0
+            self._apply_level(0)
 
     async def _handle_event(self, event) -> None:
         """Handle incoming DALI bus events to update light state.
@@ -212,14 +218,11 @@ class DaliLight(LightEntity):
         if level is not None:
             if level == DALI_MASK:
                 return  # MASK = "stop fading", not a level
-            self._brightness = round(level * 255 / 254)
-            self._is_on = level > 0
+            self._apply_level(round(level * 255 / 254))
         elif command == DALI_CMD_OFF:
-            self._is_on = False
-            self._brightness = 0
+            self._apply_level(0)
         elif command == DALI_CMD_RECALL_MAX_LEVEL:
-            self._is_on = True
-            self._brightness = 255
+            self._apply_level(255)
         else:
             return  # Other commands don't directly change the level
 

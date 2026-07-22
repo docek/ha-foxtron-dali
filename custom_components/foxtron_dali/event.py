@@ -119,10 +119,25 @@ class DaliButton(EventEntity):
             )
         )
 
-        # Při reconnectu driveru resetujeme stavy tlačítek
+        # Při výpadku brány resetujeme stavy tlačítek a entitu označíme
+        # jako nedostupnou; po reconnectu se zase vrátí.
         self.async_on_remove(
-            self._driver.add_disconnect_callback(self._cancel_all_button_tasks)
+            self._driver.add_disconnect_callback(self._handle_driver_disconnect)
         )
+        self.async_on_remove(
+            self._driver.add_connect_callback(self._handle_driver_connect)
+        )
+
+    def _handle_driver_disconnect(self) -> None:
+        """Reset button state and mark the entity unavailable."""
+        self._cancel_all_button_tasks()
+        self._attr_available = False
+        self.async_write_ha_state()
+
+    def _handle_driver_connect(self) -> None:
+        """Restore availability after a reconnect."""
+        self._attr_available = True
+        self.async_write_ha_state()
 
     def _cancel_all_button_tasks(self) -> None:
         """Cancel all pending button tasks (called on TCP reconnect)."""
@@ -186,6 +201,9 @@ class DaliButton(EventEntity):
     ) -> None:
         """Fire both entity and Home Assistant bus events."""
         super()._trigger_event(event_type, event_attributes)
+        # EventEntity only records the event; publishing the new state is
+        # the entity's job, otherwise the entity shows stale data in the UI.
+        self.async_write_ha_state()
 
         if getattr(self.hass, "bus", None):
             attrs = dict(event_attributes or {})

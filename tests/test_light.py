@@ -93,6 +93,26 @@ async def test_handle_dali_command_events_updates_state():
 
 
 @pytest.mark.asyncio
+async def test_turn_on_without_brightness_restores_last_level():
+    """turn_on with no brightness restores the last known level, not 100 %."""
+    light = _make_light()
+    light.async_write_ha_state = MagicMock()
+
+    await light.async_turn_on(brightness=100)
+    light._driver.set_device_level.reset_mock()
+    await light.async_turn_off()
+
+    await light.async_turn_on()
+    assert light.brightness == 100
+
+    # A light that never had a known level falls back to full brightness
+    fresh = _make_light()
+    fresh.async_write_ha_state = MagicMock()
+    await fresh.async_turn_on()
+    assert fresh.brightness == 255
+
+
+@pytest.mark.asyncio
 async def test_broadcast_dapc_sets_brightness():
     """0xFE broadcast DAPC carries a light level for all lights."""
     light = _make_light()
