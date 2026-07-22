@@ -13,17 +13,24 @@ import asyncio
 
 import pytest
 
-# These tests exercise real localhost TCP connections; lift the socket
-# block imposed by pytest-homeassistant-custom-component.
-pytestmark = pytest.mark.enable_socket
-
-from custom_components.foxtron_dali.driver import (  # noqa: E402
+from custom_components.foxtron_dali.driver import (
     DaliCommandEvent,
     FoxtronDaliDriver,
     FoxtronMessage,
     MSG_TYPE_DALI_EVENT_NO_ANSWER,
     MSG_TYPE_QUERY_CONFIG_ITEM,
 )
+
+
+@pytest.fixture(autouse=True)
+def _allow_local_sockets(socket_enabled):
+    """Lift the socket block from pytest-homeassistant-custom-component.
+
+    These tests exercise real localhost TCP connections. The fixture (rather
+    than the enable_socket marker) is used because fixtures run after all
+    pytest_runtest_setup hooks, so it wins regardless of plugin hook order.
+    """
+    yield
 
 
 class FakeGateway:
