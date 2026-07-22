@@ -82,14 +82,21 @@ The DALI4SW button and other DALI-2 input devices send standard "Input Notificat
     *   `0AAAAAAS`: **Short Address.** `S=0`. `AAAAAA` is the 6-bit short address (0-63).
     *   `1000GGGS`: **Group Address.** `S=0`. `GGG` is the 4-bit group address (0-15).
     *   `11111111`: **Broadcast.**
-*   `IIIIIIII`: The 8-bit instance number (e.g., 0-3 for the DALI4SW, corresponding to SW1-SW4).
-*   `EEEEEEEE`: The 8-bit event code, as defined by the DALI-2 standard (IEC 62386-301).
+*   Instance byte: bits 6-2 carry the **instance number** (0-31). Verified
+    against real DALI4SW hardware: SW1-SW4 report instances 0-3, i.e. bytes
+    `0x00/0x04/0x08/0x0C`. (An earlier revision of this document claimed the
+    whole byte is the instance number — that does not match observed frames.)
+*   `EEEEEEEE`: The 8-bit event code (IEC 62386-301).
 
 | Event Name | Event Code (Hex) | Description |
 | :--- | :--- | :--- |
-| `Button pressed` | `0x00` | The button has just been pressed down. |
-| `Button released` | `0x01` | The button has just been released. |
+| `Button released` | `0x00` | The button has just been released. |
+| `Button pressed` | `0x01` | The button has just been pressed down. |
 | `Short press` | `0x02` | Press/release cycle shorter than "Short timer". |
+<!-- Note: codes 0x00/0x01 above are verified against real DALI4SW traffic
+     (pressed = 0x01, released = 0x00); the integration reconstructs all
+     other gestures in software from these two. -->
+
 | `Double press` | `0x03` | Two short presses within "Double timer". |
 | `Long press start` | `0x04` | Held longer than "Short timer". |
 | `Long press repeat` | `0x05` | Sent every 200ms during a long press. |
@@ -134,10 +141,11 @@ Parameters accessible via `Type 0x06` (Read) and `Type 0x08` (Write).
 * **Full Frame:** `b'\x010B001003900051\x17'`
 
 ### 6.2. Decoding a DALI4SW Button Event
-* **Received Frame (ASCII):** `0418A1E0024A`
-* **Decoded Payload (Binary):** `[0x04, 0x18, 0xA1, 0xE0, 0x02]`
-* **Checksum:** `0x4A` (Valid)
-* **DALI Frame (24 bits):** `A1E002` -> Address `0x50` (Short Address 80), Instance `0` (SW1), Event `0x02` (Short Press).
+* **Received Frame (ASCII):** `0418020401DC`
+* **Decoded Payload (Binary):** `[0x04, 0x18, 0x02, 0x04, 0x01]`
+* **Checksum:** `0xDC` (Valid: `~(0x04+0x18+0x02+0x04+0x01) & 0xFF`)
+* **DALI Frame (24 bits):** `020401` -> Addressing byte `0x02` (Short Address 1),
+  Instance byte `0x04` (Instance 1), Event `0x01` (Button pressed).
 
 ### 6.3. Query Firmware Version
 * **Send Frame:** `b'\x010602F7\x17'` (Type `0x06`, Item `2`, Checksum `0xF7`)

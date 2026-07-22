@@ -26,9 +26,7 @@
                     "start_discovery": "Start Button Pairing",
                     "reload_all": "Reload All Buses",
                     "set_event_timing": "Set Event Timing",
-                    "set_fade_time": "Set Fade Time",
-                    "upload_config": "Upload Light Configuration",
-                    "backup_config": "Backup Light Configuration"
+                    "set_fade_time": "Set Fade Time"
                 }
             },
             "start_discovery": {
@@ -50,31 +48,11 @@
                     "long_press_repeat": "Long Press Repeat",
                     "multi_press_window": "Multi-Press Window"
                 }
-            },
-            "upload_config": {
-                "title": "Upload Light Configuration",
-                "description": "Upload a JSON file mapping DALI addresses to name, area, and unique_id.",
-                "data": {
-                    "file_path": "Path to JSON file"
-                }
-            },
-            "backup_config": {
-                "title": "Backup Light Configuration",
-                "description": "Export the current light configuration to a JSON file.",
-                "data": {
-                    "file_path": "Path to save JSON file"
-                }
             }
         },
         "abort": {
             "discovery_started": "Pairing mode activated for 5 minutes. Press Upper then Lower on the switch to register it.",
             "reload_complete": "All DALI buses reloaded successfully."
-        },
-        "error": {
-            "invalid_json": "Invalid JSON file. Expected a mapping of addresses to configuration objects.",
-            "file_not_found": "File not found. Please check the path and try again.",
-            "write_failed": "Failed to write to file. Please check the path and try again.",
-            "no_config": "No light configuration to backup."
         }
     }
 }

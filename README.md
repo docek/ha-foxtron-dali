@@ -1,72 +1,44 @@
 # Foxtron DALI Home Assistant Integration
 
-This custom component integrates Foxtron DALI gateways (DALInet, DALI2net) into Home Assistant, allowing you to control DALI lights and react to DALI-2 button events.
+This custom component integrates Foxtron DALI gateways (DALInet, DALI2net) into Home Assistant: DALI lights become `light` entities, DALI-2 buttons (e.g. Foxtron DALI4SW) fire events and device triggers, and physical wall switches can be paired as first-class Home Assistant devices.
 
-It communicates with the Foxtron DALI gateways using a proprietary ASCII-based protocol over TCP/IP. The protocol is documented in the [`docs`](custom_components/foxtron_dali/docs) directory of this repository, with a detailed summary in [`protocol_spec.md`](custom_components/foxtron_dali/docs/protocol_spec.md).
+It communicates with the gateway over its proprietary ASCII/TCP protocol. The protocol is documented in the [`docs`](custom_components/foxtron_dali/docs) directory, with a corrected summary in [`protocol_spec.md`](custom_components/foxtron_dali/docs/protocol_spec.md).
 
 ## Features
 
-*   **Light Discovery & Control:** Automatically discovers DALI control gear (lights) on the bus. They appear as standard Home Assistant `light` entities, supporting brightness control.
-*   **Push-Based State Updates:** Light entities listen for DALI commands on the bus and update instantly without polling.
-*   **Button Event Integration:** Listens for DALI-2 input device events (like the Foxtron DALI4SW) and exposes them as `event` entities for use in automations.
-*   **Global Services:** Provides services to send broadcast commands (`broadcast_on`, `broadcast_off`) to all lights on a DALI bus.
-*   **Configurable Fade Time:** Allows setting the DALI fade time via the integration options or a service call.
-*   **Multi-Gateway Support:** Supports both single-bus (DALInet) and dual-bus (DALI2net) gateways.
+*   **Light discovery & control** — scans the bus at startup, exposes each control gear as a brightness-capable `light` entity, and adds new lights on demand via the `scan_for_lights` service.
+*   **Push-based state updates** — light entities decode 16-bit frames observed on the bus (DAPC levels, OFF, RECALL MAX, broadcast DAPC) and update without polling. Note: this only applies to frames sent by *other* DALI masters; the gateway reports the integration's own commands separately.
+*   **Button events & gestures** — DALI4SW modules send only raw `pressed`/`released` notifications; the integration reconstructs `short_press`, `double_press`, `triple_press` and `long_press_start/repeat/stop` in software with configurable timing.
+*   **Switch pairing & native device triggers** — a 5-minute pairing mode turns physical rocker switches into Home Assistant devices with `upper`/`lower` × press-type device triggers usable directly in the automation UI.
+*   **Robust connection handling** — a supervisor task owns each TCP connection: exponential-backoff reconnect (1 s → 60 s), `ConfigEntryNotReady` when the gateway is offline at startup (HA retries setup on its own), and a keep-alive watchdog that detects silently dead connections (unplugged cable) within ~1 minute. Lights show as `unavailable` while their gateway is unreachable and refresh their state on reconnect.
+*   **Multi-gateway / multi-bus** — one config entry per DALI bus; DALI2net exposes two buses (TCP ports 23 and 24).
 
 ## Supported Hardware
 
-*   **Foxtron DALInet:** Single DALI bus to Ethernet gateway.
-*   **Foxtron DALI2net:** Dual DALI bus to Ethernet gateway.
-*   **Foxtron DALI4SW:** 4-channel DALI-2 button interface.
-*   Other DALI and DALI-2 compliant control gear (lights) and input devices (buttons, sensors).
+*   **Foxtron DALInet** — single DALI bus to Ethernet gateway.
+*   **Foxtron DALI2net** — dual DALI bus to Ethernet gateway.
+*   **Foxtron DALI4SW** — 4-channel DALI-2 button interface.
+*   Other DALI control gear and DALI-2 input devices should work; only the hardware above is verified.
 
 ## Installation
 
-1.  Ensure you have a working Home Assistant installation.
-2.  Copy the `custom_components/foxtron_dali` directory from this repository into your `<config>/custom_components/` directory, or add this repository to [HACS](https://hacs.xyz/) as a custom repository.
+1.  Add this repository to [HACS](https://hacs.xyz/) as a custom repository (type: Integration). HACS installs the latest GitHub Release; updates and version rollbacks are done through HACS ("Redownload" lets you pick a version).
+2.  Alternatively, copy `custom_components/foxtron_dali` into `<config>/custom_components/` manually.
 3.  Restart Home Assistant.
-4.  Go to **Settings > Devices & Services** and click the **+ ADD INTEGRATION** button.
-5.  Search for "Foxtron DALI" and select it.
+4.  **Settings → Devices & Services → Add Integration**, search for "Foxtron DALI".
+5.  Enter the gateway IP and port — `23` for the first DALI bus, `24` for the second (DALI2net). Repeat for each bus.
 
-## Configuration
+## Lights
 
-### Initial Setup
+Lights are discovered automatically when the integration starts and named `light.dali_light_<address>` (rename them freely — entity IDs and unique IDs are stable). Brightness is supported; fade behaviour follows the configured DALI fade time.
 
-When you first add the integration, you will be prompted for the following:
+If you add new gear to the bus later, call `foxtron_dali.scan_for_lights` — each bus is rescanned and only newly found addresses are added.
 
-*   **Host:** The IP address of your Foxtron DALI gateway.
-*   **Port:** The TCP port for the DALI bus you want to connect to. This is typically `23` for the first DALI bus and `24` for the second bus on a DALI2net.
+While a gateway is unreachable its lights are `unavailable`; they recover automatically (including a fresh level query) when the connection returns.
 
-### Options
+## Buttons
 
-After setup, you can adjust additional settings by clicking **CONFIGURE** on the integration card:
-
-*   **Default Fade Time:** Sets the default DALI fade time (0-15) for all lights on this bus.
-*   **Button Event Timing:** Adjust thresholds for multi-press and long-press detection.
-*   **Light Configuration Import/Export:** Save or restore light names and areas
-    using a JSON file. The default filename is derived from the gateway's IP
-    address and port, and any existing file with that name will be overwritten.
-
-All options are applied globally. Changing the configuration for one bus updates
-the settings for every configured Foxtron DALI bus.
-
-## Usage
-
-### Controlling Lights
-
-DALI lights are discovered automatically when the integration starts. They will appear as standard `light` entities in Home Assistant, named like `light.dali_light_0`, `light.dali_light_1`, etc., where the number is the DALI short address.
-
-You can control these lights like any other Home Assistant light entity in your dashboard, scenes, and automations.
-
-The integration listens for brightness commands on the DALI bus. When a light level changes—either directly or via broadcast—the corresponding `light` entity updates immediately. No polling or additional configuration is required.
-
-### Using DALI Buttons
-
-DALI buttons generate events on the bus whenever they are pressed. The integration forwards these events to Home Assistant without storing any button configuration.
-
-Each button press generates events on the `DALI Button Events` entity. You can trigger automations using the `foxtron_dali_button_event` event type. Event data includes the `bus_id` (derived from the host and port), the DALI `address`, the `instance_number`, and the specific `press_type` such as `short_press` or `long_press_start`.
-
-Here is an example automation that turns on a light with a short press of a DALI button:
+Every DALI-2 input notification is exposed on a per-bus `DALI Button Events` `event` entity, and simultaneously fired on the HA event bus as `foxtron_dali_button_event`:
 
 ```yaml
 automation:
@@ -85,43 +57,53 @@ automation:
           entity_id: light.kitchen_light
 ```
 
-The `press_type` in the trigger can be any of the following standard DALI-2 event names:
-*   `button_pressed`
-*   `button_released`
-*   `short_press`
-*   `double_press`
-*   `triple_press`
-*   `long_press_start`
-*   `long_press_repeat`
-*   `long_press_stop`
+`press_type` is one of: `button_pressed`, `button_released`, `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop`. Gesture timing (long-press threshold, repeat interval, multi-press window) is configurable in the integration options.
 
-Foxtron DALI4SW devices are configured to send only the `button_pressed` and
-`button_released` notifications on the bus. The integration reconstructs all
-other button events locally based on timing. These thresholds (long press
-delay, repeat interval, and multi-press window) can be adjusted in the
-integration's configuration options. Any other button events from the bus are
-ignored.
+## Switch Pairing (DALI4SW)
+
+Physical rocker switches can be registered as Home Assistant devices:
+
+1.  Open the integration options (**CONFIGURE**) → **Start Button Pairing**. Pairing mode runs for 5 minutes (a persistent notification shows the state).
+2.  On the physical switch, press **Upper** and then **Lower** within 5 seconds. The integration pairs the two instances of that DALI address and creates a device.
+3.  The new device offers native **device triggers**: `upper`/`lower` × `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop` — pick them directly in the automation editor. Each trigger also fires `foxtron_dali_button_action` on the event bus with `device_id`, `flap` and `press_type`.
+4.  To remove a paired switch, call `foxtron_dali.remove_paired_switch` with its device ID.
 
 ## Services
 
-This integration provides several global services to control all lights on a DALI bus simultaneously.
+All services are global (they act on every configured bus).
 
-#### `foxtron_dali.broadcast_on`
+| Service | Description |
+|---------|-------------|
+| `foxtron_dali.scan_for_lights` | Rescan all buses and add newly discovered lights. |
+| `foxtron_dali.broadcast_on` | All lights to their maximum level (entities update optimistically). |
+| `foxtron_dali.broadcast_off` | All lights off (entities update optimistically). |
+| `foxtron_dali.set_fade_time` | Set the DALI fade time, code 0–15 (sent as a proper send-twice config command). |
+| `foxtron_dali.remove_paired_switch` | Remove a paired DALI switch device (`device_id`). |
 
-Turns on all lights on all configured DALI buses to their maximum level.
+## Options
 
-#### `foxtron_dali.broadcast_off`
+Opened via **CONFIGURE** on any entry; options are applied to **all** configured buses:
 
-Turns off all lights on all configured DALI buses.
+*   **Start Button Pairing** — see above.
+*   **Reload All Buses** — reload every config entry at once.
+*   **Set Fade Time** — default DALI fade code (0–15) applied at startup.
+*   **Set Event Timing** — long-press threshold, long-press repeat interval and multi-press window (seconds).
 
-#### `foxtron_dali.set_fade_time`
+## Reliability Notes
 
-Sets the DALI fade time for all devices on all configured DALI buses.
+*   Gateway offline at HA startup (e.g. power-outage recovery where HA boots faster than the gateway): setup raises `ConfigEntryNotReady` and HA keeps retrying until the gateway appears — no manual reload needed.
+*   Connection lost at runtime: the supervisor reconnects with exponential backoff. A silently dead connection (cable pulled — TCP black hole) is detected by the keep-alive watchdog within ~50–70 s.
+*   The DALI2net accepts only **one TCP master per port** — don't run other control software against the same bus port while HA is connected.
 
-| Field       | Description                             | Example |
-|-------------|-----------------------------------------|---------|
-| `fade_time` | A DALI fade code from 0 to 15.          | `7`     |
+## Development
+
+```bash
+uv run --group test pytest      # test suite (incl. fake-gateway reconnect tests)
+uv run --group dev pre-commit run --all-files
+```
+
+Releases follow a strict flow: bump `manifest.json` version → tag `vX.Y.Z` → GitHub Release (HACS deploys only from releases). Release notes include verification steps and the rollback target.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to open an issue or submit a pull request if you have any improvements or bug fixes.
+This integration is developed for a single household installation, but issues and pull requests are welcome.
