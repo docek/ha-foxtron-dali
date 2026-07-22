@@ -1,7 +1,7 @@
 {
     "domain": "foxtron_dali",
     "name": "Foxtron DALI Gateway",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "config_flow": true,
     "documentation": "https://github.com/docek/ha-foxtron-dali",
     "issue_tracker": "https://github.com/docek/ha-foxtron-dali/issues",
