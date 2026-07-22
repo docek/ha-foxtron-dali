@@ -202,21 +202,10 @@ class DaliButton(EventEntity):
             device = self._find_switch_device(device_registry, address, instance_number)
 
             if device:
-                # Najdeme, jestli se instance mapuje na upper nebo lower
-                # Tohle závisí na informacích, co si uložíme do device v `hw_version` apod.,
-                # nebo elegantně vyčteme z vazby v registrech.
-                # Prozatím jako nejlepší způsob: uložíme si mapování přímo do konfigurace.
-                upper_inst = None
-                lower_inst = None
-                # Čteme mapování z hw_version (nový formát), fallback na sw_version (starý)
-                mapping_str = device.hw_version or device.sw_version
-                if mapping_str:
-                    try:
-                        upper_str, lower_str = mapping_str.split(",")
-                        upper_inst = int(upper_str.strip())
-                        lower_inst = int(lower_str.strip())
-                    except ValueError:
-                        pass
+                # Mapování instance -> upper/lower nese identifier zařízení
+                # (nový formát), s fallbackem na hw_version/sw_version "u,l"
+                # u zařízení spárovaných starší verzí integrace.
+                upper_inst, lower_inst = self._parse_switch_mapping(device)
 
                 flap = None
                 if instance_number == upper_inst:

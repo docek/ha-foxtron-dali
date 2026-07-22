@@ -314,6 +314,89 @@ async def test_button_event_does_not_store_options():
     await button.async_will_remove_from_hass()
 
 
+DOMAIN = event_module.DOMAIN
+
+
+def _make_switch_device(identifier: str, hw_version=None, sw_version=None):
+    """Build a fake paired-switch DeviceEntry."""
+    device = MagicMock()
+    device.identifiers = {(DOMAIN, identifier)}
+    device.hw_version = hw_version
+    device.sw_version = sw_version
+    device.name = "Test Switch"
+    device.id = "device123"
+    return device
+
+
+def test_parse_switch_mapping_new_identifier_format(button):
+    """Mapping comes from the identifier for devices paired by current code."""
+    device = _make_switch_device(
+        "dali4sw_test_23_1_1_0",
+        hw_version="Addr 1",
+        sw_version="↑ Inst 1, ↓ Inst 0",
+    )
+    assert button._parse_switch_mapping(device) == (1, 0)
+
+
+def test_parse_switch_mapping_legacy_version_format(button):
+    """Mapping falls back to hw_version 'u,l' for devices paired by old code."""
+    device = _make_switch_device("dali4sw_test_23_1", hw_version="1,0")
+    assert button._parse_switch_mapping(device) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_device_trigger_fires_for_new_format_device(button, switch_devices):
+    """Regression: EVENT_BUTTON_ACTION must fire for newly paired switches.
+
+    Devices paired by the current code store 'Addr N' in hw_version; the old
+    inline parser in _trigger_event choked on it and never fired the native
+    device trigger.
+    """
+    switch_devices.append(
+        _make_switch_device(
+            "dali4sw_test_23_1_1_0",
+            hw_version="Addr 1",
+            sw_version="↑ Inst 1, ↓ Inst 0",
+        )
+    )
+
+    # _make_event: address 1, instance 1 -> upper flap
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    button._cancel_all_button_tasks()
+
+    assert (
+        event_module.EVENT_BUTTON_ACTION,
+        {"device_id": "device123", "flap": "upper", "press_type": "button_pressed"},
+    ) in button.hass.bus.events
+
+
+@pytest.mark.asyncio
+async def test_device_trigger_lower_flap(button, switch_devices):
+    """Instance matching the lower slot fires with flap=lower."""
+    # _make_event address 1 instance 1 -> lower when identifier maps 1 as lower
+    switch_devices.append(
+        _make_switch_device("dali4sw_test_23_1_0_1", hw_version="Addr 1")
+    )
+
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    button._cancel_all_button_tasks()
+
+    assert (
+        event_module.EVENT_BUTTON_ACTION,
+        {"device_id": "device123", "flap": "lower", "press_type": "button_pressed"},
+    ) in button.hass.bus.events
+
+
+@pytest.mark.asyncio
+async def test_no_device_trigger_without_paired_device(button):
+    """No EVENT_BUTTON_ACTION when the pressed button has no paired device."""
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    button._cancel_all_button_tasks()
+
+    fired = [e for e, _ in button.hass.bus.events]
+    assert event_module.EVENT_BUTTON_ACTION not in fired
+
+
 @pytest.mark.asyncio
 async def test_fires_hass_event(button):
     """Ensure events are fired on Home Assistant's event bus."""
