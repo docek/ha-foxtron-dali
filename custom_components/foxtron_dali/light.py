@@ -5,6 +5,7 @@ from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEnti
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -33,13 +34,20 @@ async def async_setup_entry(
 
     known_addresses: set[int] = set()
 
+    # Addresses already registered from previous runs always get an entity.
+    # A bus scan can occasionally miss a reply on a busy bus; entity
+    # existence must not depend on scan luck — the scan only discovers
+    # NEW gear, availability reflects the connection state.
+    registry_addresses = _registry_addresses(hass, entry)
+
     async def _scan_and_add(refresh: bool = False) -> None:
         """Scan the bus and add newly discovered lights."""
         # The connection is established by async_setup_entry before the
         # platforms are forwarded; the scan itself runs in the background
         # so it doesn't block startup.
-        addresses = await driver.scan_for_devices(refresh=refresh)
-        new = [addr for addr in addresses if addr not in known_addresses]
+        addresses = set(await driver.scan_for_devices(refresh=refresh))
+        addresses |= registry_addresses
+        new = sorted(addr for addr in addresses if addr not in known_addresses)
         known_addresses.update(new)
         if new:
             async_add_entities([DaliLight(driver, addr, entry) for addr in new])
@@ -51,6 +59,20 @@ async def async_setup_entry(
         await _scan_and_add(refresh=True)
 
     entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_RESCAN, _rescan))
+
+
+def _registry_addresses(hass: HomeAssistant, entry: ConfigEntry) -> set[int]:
+    """Return DALI addresses of lights already known to the entity registry."""
+    registry = er.async_get(hass)
+    prefix = f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_"
+    addresses: set[int] = set()
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.domain != "light" or not reg_entry.unique_id.startswith(prefix):
+            continue
+        suffix = reg_entry.unique_id.removeprefix(prefix)
+        if suffix.isdigit():
+            addresses.add(int(suffix))
+    return addresses
 
 
 class DaliLight(LightEntity):

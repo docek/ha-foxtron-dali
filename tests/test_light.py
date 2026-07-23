@@ -252,6 +252,7 @@ async def test_rescan_signal_adds_only_new_lights(monkeypatch):
     monkeypatch.setattr(
         light_module, "async_dispatcher_connect", fake_dispatcher_connect
     )
+    monkeypatch.setattr(light_module, "_registry_addresses", lambda h, e: set())
 
     await light_module.async_setup_entry(hass, entry, lambda ents: added.extend(ents))
     await tasks[0]  # initial background scan
@@ -262,6 +263,67 @@ async def test_rescan_signal_adds_only_new_lights(monkeypatch):
     assert len(added) == 3
     assert added[-1]._address == 3
     driver.scan_for_devices.assert_awaited_with(refresh=True)
+
+
+@pytest.mark.asyncio
+async def test_registry_known_lights_survive_scan_miss(monkeypatch):
+    """Regression: a flaky scan must not drop lights known from the registry.
+
+    A busy bus can occasionally miss a query reply; previously that light's
+    entity simply didn't get created after a restart.
+    """
+    driver = MagicMock()
+    # Scan misses address 5 (known from a previous run) but sees 1 and 2
+    driver.scan_for_devices = AsyncMock(return_value=[1, 2])
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
+    entry.async_on_unload = MagicMock()
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"e1": driver}}
+    tasks = []
+    hass.async_create_task = lambda coro: tasks.append(coro)
+
+    added = []
+    monkeypatch.setattr(
+        light_module, "async_dispatcher_connect", lambda h, s, t: MagicMock()
+    )
+    monkeypatch.setattr(light_module, "_registry_addresses", lambda h, e: {1, 5})
+
+    await light_module.async_setup_entry(hass, entry, lambda ents: added.extend(ents))
+    await tasks[0]
+
+    assert sorted(light._address for light in added) == [1, 2, 5]
+
+
+def test_registry_addresses_parses_unique_ids(monkeypatch):
+    """Addresses are parsed from light unique_ids of this config entry."""
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
+
+    def _reg_entry(domain, unique_id):
+        e = MagicMock()
+        e.domain = domain
+        e.unique_id = unique_id
+        return e
+
+    entries = [
+        _reg_entry("light", "1.2.3.4_23_7"),
+        _reg_entry("light", "1.2.3.4_23_42"),
+        _reg_entry("light", "9.9.9.9_24_3"),  # other bus
+        _reg_entry("event", "1.2.3.4_23_button_events"),  # other domain
+        _reg_entry("light", "1.2.3.4_23_button_events"),  # non-numeric
+    ]
+    monkeypatch.setattr(light_module.er, "async_get", lambda hass: MagicMock())
+    monkeypatch.setattr(
+        light_module.er,
+        "async_entries_for_config_entry",
+        lambda registry, entry_id: entries,
+    )
+
+    assert light_module._registry_addresses(MagicMock(), entry) == {7, 42}
 
 
 @pytest.mark.asyncio
