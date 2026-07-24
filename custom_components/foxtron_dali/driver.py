@@ -947,6 +947,7 @@ class FoxtronDaliDriver:
         timeout: float = 0.5,
         retries: int = 2,
         backoff: float = 0.1,
+        warn_on_timeout: bool = True,
     ) -> Optional[int]:
         """Sends a DALI query and waits for a response.
 
@@ -961,6 +962,9 @@ class FoxtronDaliDriver:
             retries: Number of additional attempts if the query times out.
             backoff: Base delay (in seconds) before retrying; grows with the
                 attempt number.
+            warn_on_timeout: Log a WARNING when all attempts time out. Set to
+                False for presence probing (bus scan), where an unanswered
+                address is the expected result for an empty slot, not a fault.
 
         Returns:
             The 8-bit integer response from the DALI device, or None if no
@@ -1008,7 +1012,8 @@ class FoxtronDaliDriver:
                 if attempt < total_attempts:
                     await asyncio.sleep(backoff * attempt)
                     continue
-                self._log.warning(
+                log = self._log.warning if warn_on_timeout else self._log.debug
+                log(
                     "No response for query %s after %s attempts",
                     dali_command.hex(),
                     total_attempts,
@@ -1102,8 +1107,10 @@ class FoxtronDaliDriver:
         """
         address_byte = (addr * 2) + 1
         opcode_byte = DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
+        # An empty address staying silent is the normal outcome here, so a
+        # timeout must not be logged as a WARNING (would spam ~64-N lines/scan).
         return await self.send_dali_query(
-            address_byte, opcode_byte, timeout=0.2, retries=0
+            address_byte, opcode_byte, timeout=0.2, retries=0, warn_on_timeout=False
         )
 
     async def scan_for_devices(self, refresh: bool = False) -> List[int]:

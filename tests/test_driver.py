@@ -2,6 +2,7 @@ import asyncio
 import importlib.util
 from importlib.machinery import ModuleSpec
 from pathlib import Path
+from unittest.mock import MagicMock
 
 # Load driver module without importing the package (which requires Home Assistant)
 MODULE_PATH = (
@@ -64,9 +65,14 @@ def test_scan_uses_presence_query_without_retries():
         seen = []
 
         async def fake_query(
-            address_byte, opcode_byte, timeout=0.5, retries=2, backoff=0.1
+            address_byte,
+            opcode_byte,
+            timeout=0.5,
+            retries=2,
+            backoff=0.1,
+            warn_on_timeout=True,
         ):
-            seen.append((address_byte, opcode_byte, retries))
+            seen.append((address_byte, opcode_byte, retries, warn_on_timeout))
             return 0xFF if address_byte == (5 * 2) + 1 else None
 
         driver_instance.send_dali_query = fake_query
@@ -75,11 +81,62 @@ def test_scan_uses_presence_query_without_retries():
         assert result == [5]
         assert len(seen) == 64
         assert all(
-            opcode == driver.DALI_CMD_QUERY_CONTROL_GEAR_PRESENT and retries == 0
-            for _, opcode, retries in seen
+            opcode == driver.DALI_CMD_QUERY_CONTROL_GEAR_PRESENT
+            and retries == 0
+            # Empty addresses are expected during a scan; probing must not warn.
+            and warn_on_timeout is False
+            for _, opcode, retries, warn_on_timeout in seen
         )
         # Not connected -> the (possibly incomplete) result is not cached
         assert driver_instance._scan_cache is None
+
+    asyncio.run(run_test())
+
+
+def _make_timing_out_driver():
+    """A driver whose queries always time out (frame sent, no reply ever)."""
+    driver_instance = FoxtronDaliDriver("host", 1234)
+    driver_instance._log = MagicMock()
+
+    async def _noop_frame(dali_command, params=0x00):
+        return None
+
+    driver_instance._send_dali_frame = _noop_frame
+    return driver_instance
+
+
+def test_query_timeout_warns_by_default():
+    """A real query that never gets a reply logs a WARNING after all attempts."""
+
+    async def run_test():
+        driver_instance = _make_timing_out_driver()
+        result = await driver_instance.send_dali_query(
+            0x03, 0xA0, timeout=0.01, retries=0
+        )
+        assert result is None
+        assert driver_instance._log.warning.called
+        assert not driver_instance._log.debug.call_args_list or all(
+            "after" not in (call.args[0] if call.args else "")
+            for call in driver_instance._log.debug.call_args_list
+        )
+
+    asyncio.run(run_test())
+
+
+def test_query_timeout_stays_debug_when_warn_disabled():
+    """Presence probing (warn_on_timeout=False) must not emit a WARNING."""
+
+    async def run_test():
+        driver_instance = _make_timing_out_driver()
+        result = await driver_instance.send_dali_query(
+            0x03, 0x91, timeout=0.01, retries=0, warn_on_timeout=False
+        )
+        assert result is None
+        assert not driver_instance._log.warning.called
+        assert any(
+            call.args and "after" in call.args[0]
+            for call in driver_instance._log.debug.call_args_list
+        )
 
     asyncio.run(run_test())
 
