@@ -34,11 +34,18 @@ DALI_DEFAULT_FADE_RATE = 7
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Foxtron DALI from a config entry."""
-    # If this is a new entry, copy options from an existing one
+    # If this is a new entry, copy options from an existing one — except
+    # per-bus state like the remediation flag (a new gateway must run its
+    # own one-shot fade-rate remediation)
     if not entry.options:
         for existing in hass.config_entries.async_entries(DOMAIN):
             if existing.entry_id != entry.entry_id and existing.options:
-                hass.config_entries.async_update_entry(entry, options=existing.options)
+                copied = {
+                    k: v
+                    for k, v in existing.options.items()
+                    if k != "fade_rate_restored"
+                }
+                hass.config_entries.async_update_entry(entry, options=copied)
                 break
 
     host = entry.data[CONF_HOST]

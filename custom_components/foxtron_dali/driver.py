@@ -25,6 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 SOH = b"\x01"  # Start of Heading
 ETB = b"\x17"  # End of Transmission Block
 KEEP_ALIVE_INTERVAL = 20  # Seconds to send keep-alive to prevent TCP timeout
+# Longest valid frame is tens of bytes; anything larger is a broken stream
+MAX_RX_BUFFER = 4096
 
 # --- Foxtron Message Types (Protocol Command Byte) ---
 # See protocol_spec.md for a detailed description of each message type.
@@ -65,12 +67,10 @@ DALI_CMD_OFF = 0x00
 DALI_CMD_RECALL_MAX_LEVEL = 0x05
 DALI_CMD_SET_FADE_TIME = 0x2E
 DALI_CMD_SET_FADE_RATE = 0x2F
-DALI_CMD_QUERY_STATUS = 0x90
 DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
 DALI_CMD_QUERY_FADE_TIME_RATE = 0xA5  # Upper nibble: fade time, lower: fade rate
-DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
 
 # --- Special Gateway Event Codes (Type 0x05 / config item 3) ---
 GW_EVENT_POWER_OK = 0
@@ -565,6 +565,15 @@ class FoxtronConnection:
 
             etb_index = buffer.find(ETB, soh_index + 1)
             if etb_index == -1:
+                # Cap the buffer: a stray SOH or a gateway fault that never
+                # closes a frame must not grow memory forever (and byte
+                # dribble keeps the silence-based watchdog quiet).
+                if len(buffer) > MAX_RX_BUFFER:
+                    self._log.warning(
+                        "Discarding %d buffered bytes without frame end.",
+                        len(buffer),
+                    )
+                    return b""
                 return buffer  # Need more data
 
             frame_content = buffer[soh_index + 1 : etb_index]
@@ -618,6 +627,7 @@ class FoxtronDaliDriver:
         self._event_queue: asyncio.Queue[DaliEvent] = asyncio.Queue()
         self._event_listeners: list[Callable[[DaliEvent], Awaitable[None] | None]] = []
         self._event_dispatch_task: asyncio.Task | None = None
+        self._listener_tasks: set[asyncio.Task] = set()
         self._pending_config_queries: Dict[int, asyncio.Future] = {}
         self._pending_dali_queries: Dict[bytes, asyncio.Future] = {}
         self._query_lock = asyncio.Lock()
@@ -667,6 +677,13 @@ class FoxtronDaliDriver:
             except asyncio.CancelledError:
                 pass
             self._event_dispatch_task = None
+        # Cancel straggling listener tasks so nothing touches entities or
+        # the driver after teardown
+        for task in list(self._listener_tasks):
+            task.cancel()
+        if self._listener_tasks:
+            await asyncio.gather(*self._listener_tasks, return_exceptions=True)
+        self._listener_tasks.clear()
 
     async def get_event(self) -> DaliEvent:
         """Retrieves the next event from the incoming event queue.
@@ -714,7 +731,11 @@ class FoxtronDaliDriver:
                     try:
                         result = callback(event)
                         if asyncio.iscoroutine(result):
-                            asyncio.create_task(result)
+                            # Track spawned listener tasks so disconnect()
+                            # can cancel stragglers (no use-after-teardown)
+                            task = asyncio.create_task(result)
+                            self._listener_tasks.add(task)
+                            task.add_done_callback(self._listener_tasks.discard)
                     except Exception:  # pragma: no cover - log unexpected
                         self._log.exception("Error in event listener callback")
         except asyncio.CancelledError:
@@ -855,8 +876,14 @@ class FoxtronDaliDriver:
         # used to match it to the correct pending future. Real layout
         # (verified against a live gateway): [Cmd][Len][DALI Msg][AnsLen]
         # [Ans] — AnsLen comes AFTER the echoed message.
+        if len(data_payload) < 2:
+            self._log.warning("Truncated 0x0D frame: %s", data_payload.hex())
+            return None
         cmd_len_bits = data_payload[1]
         cmd_len_bytes = (cmd_len_bits + 7) // 8
+        if len(data_payload) < 3 + cmd_len_bytes:
+            self._log.warning("Truncated 0x0D frame: %s", data_payload.hex())
+            return None
         dali_cmd_sent = data_payload[2 : 2 + cmd_len_bytes]
 
         ans_len_bits = data_payload[2 + cmd_len_bytes]
@@ -888,6 +915,9 @@ class FoxtronDaliDriver:
 
     def _handle_dali_event(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles Type 0x03 and 0x04 spontaneous DALI events."""
+        if len(data_payload) < 2:
+            self._log.warning("Truncated DALI event frame: %s", data_payload.hex())
+            return None
         msg_type = data_payload[0]
         dali_len_bits = data_payload[1]
         dali_len_bytes = (dali_len_bits + 7) // 8
@@ -897,7 +927,10 @@ class FoxtronDaliDriver:
         # the Type 0x0D response, verified against a live gateway).
         dali_payload = data_payload[2 : 2 + dali_len_bytes]
 
-        if msg_type == MSG_TYPE_DALI_EVENT_WITH_ANSWER:
+        if (
+            msg_type == MSG_TYPE_DALI_EVENT_WITH_ANSWER
+            and len(data_payload) > 2 + dali_len_bytes
+        ):
             ans_len_bits = data_payload[2 + dali_len_bytes]
             if ans_len_bits == 0:
                 self._log.debug("Type 0x03 event with no answer (collision)")
@@ -912,10 +945,18 @@ class FoxtronDaliDriver:
 
     def _handle_special_gateway_event(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles a Type 0x05 special gateway event."""
+        if len(data_payload) < 2:
+            self._log.warning("Truncated 0x05 frame: %s", data_payload.hex())
+            return None
         return SpecialGatewayEvent(data_payload, data_payload[1])
 
     def _handle_config_response(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles a Type 0x07 configuration response."""
+        if len(data_payload) < 4:
+            # A short frame must not fabricate a value (int.from_bytes of an
+            # empty slice is 0) — let the pending query time out instead.
+            self._log.warning("Truncated 0x07 frame: %s", data_payload.hex())
+            return None
         item_number = data_payload[1]
         value = int.from_bytes(data_payload[2:4], "big")
         # Resolve the future for the pending config query
@@ -999,7 +1040,28 @@ class FoxtronDaliDriver:
 
         dali_command = bytes([address_byte, opcode_byte])
         if dali_command in self._pending_dali_queries:
-            self._log.warning("Query for %s already in progress.", dali_command.hex())
+            # Share the in-flight query instead of dropping this caller —
+            # returning None here made lights report a false "off".
+            self._log.debug(
+                "Query for %s already in progress; awaiting shared result.",
+                dali_command.hex(),
+            )
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + (timeout + backoff) * (retries + 1)
+            while (
+                existing := self._pending_dali_queries.get(dali_command)
+            ) is not None:
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(existing),
+                        timeout=max(0.01, deadline - loop.time()),
+                    )
+                except asyncio.CancelledError:
+                    if not existing.cancelled():
+                        raise  # our own task was cancelled, not the query
+                    continue  # the primary caller retried with a new future
+                except asyncio.TimeoutError, ConnectionError:
+                    return None
             return None
 
         total_attempts = retries + 1
@@ -1021,7 +1083,10 @@ class FoxtronDaliDriver:
                     self._pending_dali_queries.pop(dali_command, None)
                     return response
             except (asyncio.TimeoutError, ConnectionError) as e:
-                self._pending_dali_queries.pop(dali_command, None)
+                stale = self._pending_dali_queries.pop(dali_command, None)
+                if stale is not None and not stale.done():
+                    # Wake shared awaiters so they re-attach to the retry
+                    stale.cancel()
                 self._log.debug(
                     "No response for query %s on attempt %s/%s: %s",
                     dali_command.hex(),

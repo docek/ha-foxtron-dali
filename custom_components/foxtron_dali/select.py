@@ -45,14 +45,16 @@ async def async_setup_entry(
     )
 
 
-class DaliFadeTimeSelect(SelectEntity):
+class DaliFadeTimeSelect(helpers.ConnectionAwareEntity, SelectEntity):
     """Fade time of one DALI light, mirrored from the ballast NVM."""
 
-    _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_name = "Fade time"
     _attr_entity_category = EntityCategory.CONFIG
     _attr_options = [OPTION_BY_CODE[code] for code in range(16)]
+    # Fade time is static NVM data: read once at add, never on reconnect
+    # (re-reading 138 selects after every TCP blip doubled the query storm)
+    _refresh_on_reconnect = False
 
     def __init__(
         self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry
@@ -67,17 +69,6 @@ class DaliFadeTimeSelect(SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Attach to the same per-light device as the light entity."""
         return helpers.light_device_info(self._entry, self._address)
-
-    async def async_added_to_hass(self) -> None:
-        """Read the initial value from hardware and track the connection."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            self._driver.add_disconnect_callback(self._handle_driver_disconnect)
-        )
-        self.async_on_remove(
-            self._driver.add_connect_callback(self._handle_driver_connect)
-        )
-        await self.async_update()
 
     async def async_update(self) -> None:
         """Mirror the fade time currently stored in the ballast."""
@@ -99,18 +90,3 @@ class DaliFadeTimeSelect(SelectEntity):
                 f"DALI light {self._address} reports fade time code {readback} "
                 f"after writing {code}; the ballast may not support it"
             )
-
-    def _handle_driver_disconnect(self) -> None:
-        """Value is unknown while the gateway is unreachable."""
-        self._attr_available = False
-        self.async_write_ha_state()
-
-    def _handle_driver_connect(self) -> None:
-        """Restore availability and re-read the NVM after a reconnect."""
-        self._attr_available = True
-        self.async_write_ha_state()
-        self.hass.async_create_task(self._async_refresh())
-
-    async def _async_refresh(self) -> None:
-        await self.async_update()
-        self.async_write_ha_state()

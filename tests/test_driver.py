@@ -284,6 +284,80 @@ def test_foreign_master_query_event_parses_correct_bytes():
     asyncio.run(run_test())
 
 
+def test_duplicate_inflight_query_shares_result():
+    """A second caller querying the same frame awaits the same answer.
+
+    Regression: the old guard returned None immediately, which callers
+    (light.async_update) interpreted as 'light is off'.
+    """
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        sent = []
+
+        async def fake_frame(dali_command, params=0x00):
+            sent.append(bytes(dali_command))
+
+        driver_instance._send_dali_frame = fake_frame
+
+        async def respond_soon():
+            await asyncio.sleep(0.05)
+            driver_instance._handle_dali_response(
+                bytes([0x0D, 0x10, 0x03, 0xA0, 0x08, 0x7F])
+            )
+
+        asyncio.get_running_loop().create_task(respond_soon())
+        results = await asyncio.gather(
+            driver_instance.send_dali_query(0x03, 0xA0),
+            driver_instance.send_dali_query(0x03, 0xA0),
+        )
+
+        assert results == [0x7F, 0x7F]
+        assert len(sent) == 1, "second caller must not re-send the frame"
+
+    asyncio.run(run_test())
+
+
+def test_truncated_frames_do_not_resolve_or_crash():
+    """Short 0x0D/0x07 payloads are dropped without resolving futures.
+
+    Regression: a truncated 0x07 config response fabricated value 0 via
+    int.from_bytes(b'') and resolved the pending query with it.
+    """
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+
+        # Truncated 0x0D (just the type byte, then just type+len)
+        for payload in (bytes([0x0D]), bytes([0x0D, 0x10])):
+            assert driver_instance._handle_dali_response(payload) is None
+
+        # Truncated 0x07 config response must NOT resolve the future
+        future = asyncio.get_running_loop().create_future()
+        driver_instance._pending_config_queries[2] = future
+        driver_instance._handle_config_response(bytes([0x07, 0x02]))
+        assert not future.done(), "truncated response must not fabricate a value"
+
+        # Truncated 0x03/0x04 event payloads must not raise
+        assert driver_instance._handle_dali_event(bytes([0x03])) is None
+        assert driver_instance._handle_dali_event(bytes([0x04])) is None
+
+    asyncio.run(run_test())
+
+
+def test_rx_buffer_is_capped():
+    """A stream with SOH but no ETB must not grow the buffer forever."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        conn = driver_instance._connection
+        buffer = b"\x01" + b"A" * 5000  # SOH, never an ETB
+        result = await conn._process_buffer(buffer)
+        assert len(result) <= 4096, "unbounded RX buffer must be capped"
+
+    asyncio.run(run_test())
+
+
 def test_light_broadcast_helpers_removed():
     """broadcast_on/broadcast_off were removed with the broadcast services."""
     assert not hasattr(FoxtronDaliDriver, "broadcast_on")
@@ -399,5 +473,62 @@ def test_parse_and_queue_message_events():
         assert isinstance(input_event, DaliInputNotificationEvent)
         assert input_event.address == 5
         assert input_event.instance_number == 1
+
+    asyncio.run(run_test())
+
+
+def test_disconnect_cancels_listener_tasks():
+    """Async listener tasks spawned by the dispatcher die with disconnect."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def slow_listener(event):
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        driver_instance.add_event_listener(slow_listener)
+        await driver_instance._event_queue.put(
+            driver.DaliCommandEvent(b"", address_byte=1, opcode_byte=0)
+        )
+        driver_instance._event_dispatch_task = asyncio.get_running_loop().create_task(
+            driver_instance._event_dispatcher()
+        )
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+        await driver_instance.disconnect()
+        await asyncio.wait_for(cancelled.wait(), timeout=1)
+
+    asyncio.run(run_test())
+
+
+def test_scan_cache_hit_and_refresh():
+    """A second scan is served from cache; refresh=True re-sweeps."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        driver_instance._connection = MagicMock(is_connected=True)
+        sweeps = []
+
+        async def fake_query(address_byte, opcode_byte, **kwargs):
+            sweeps.append(address_byte)
+            return 0xFF if address_byte == (5 * 2) + 1 else None
+
+        driver_instance.send_dali_query = fake_query
+
+        assert await driver_instance.scan_for_devices() == [5]
+        assert len(sweeps) == 64
+        # Cache hit: no new probes
+        assert await driver_instance.scan_for_devices() == [5]
+        assert len(sweeps) == 64
+        # Forced refresh probes again
+        assert await driver_instance.scan_for_devices(refresh=True) == [5]
+        assert len(sweeps) == 128
 
     asyncio.run(run_test())

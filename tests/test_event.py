@@ -438,3 +438,101 @@ async def test_legacy_bus_event_no_longer_fired(button):
     await asyncio.sleep(0.02)
     fired = [name for name, _ in button.hass.bus.events]
     assert "foxtron_dali_button_event" not in fired
+
+
+@pytest.mark.asyncio
+async def test_remove_from_hass_cancels_button_tasks(button):
+    """Entity removal cancels in-flight long-press/finalize tasks.
+
+    Without this, an orphaned long-press loop keeps firing events on a
+    removed entity (use-after-teardown).
+    """
+    button._long_press_threshold = 10  # long press never fires during test
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    key = "1-1"
+    task = button._button_states[key].long_press_task
+    assert task is not None and not task.done()
+
+    await button.async_will_remove_from_hass()
+    await asyncio.sleep(0)
+    assert task.cancelled() or task.done()
+
+
+EVENT_BUTTON_STUCK = driver_module.EVENT_BUTTON_STUCK
+EVENT_BUTTON_FREE = driver_module.EVENT_BUTTON_FREE
+
+
+@pytest.mark.asyncio
+async def test_stuck_and_free_treated_as_release(button, monkeypatch):
+    """STUCK ends an in-flight press like RELEASED; FREE likewise."""
+    events = []
+    monkeypatch.setattr(button, "_trigger_event", lambda t, d=None: events.append(t))
+    button._multi_press_window = 0.01
+
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await button._handle_event(_make_event(EVENT_BUTTON_STUCK))
+    await asyncio.sleep(0.02)
+    assert events == ["button_pressed", "button_released", "short_press"]
+
+    events.clear()
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await button._handle_event(_make_event(EVENT_BUTTON_FREE))
+    await asyncio.sleep(0.02)
+    assert events == ["button_pressed", "button_released", "short_press"]
+    # No orphaned long-press task keeps running
+    state = button._button_states["1-1"]
+    assert state.long_press_task is None
+
+
+@pytest.mark.asyncio
+async def test_discovery_pairing_creates_device(button, monkeypatch):
+    """Upper+lower press within the window creates the paired device."""
+    monkeypatch.setattr(event_module, "persistent_notification", MagicMock())
+    monkeypatch.setattr(
+        event_module, "async_track_point_in_time", lambda *a, **k: MagicMock()
+    )
+    registry = MagicMock()
+    created = {}
+    device = MagicMock()
+    device.id = "dev1"
+    device.name = "DALI Vypínač 2"
+
+    def get_or_create(**kwargs):
+        created.update(kwargs)
+        return device
+
+    registry.async_get_or_create = get_or_create
+    registry.async_get_device = MagicMock(return_value=None)
+    monkeypatch.setattr(event_module.dr, "async_get", lambda hass: registry)
+
+    class _Ev:
+        data = {"duration": 300}
+
+    await button._start_discovery(_Ev())
+
+    # Two presses: same address (2), different instances (1 then 0)
+    await button._handle_event(
+        DaliInputNotificationEvent(bytes([0x04, 0x04, EVENT_BUTTON_PRESSED]))
+    )
+    await button._handle_event(
+        DaliInputNotificationEvent(bytes([0x04, 0x00, EVENT_BUTTON_PRESSED]))
+    )
+
+    assert created, "pairing must create a device"
+    idents = created["identifiers"]
+    assert ("foxtron_dali", "dali4sw_test_23_2_1_0") in idents
+
+
+@pytest.mark.asyncio
+async def test_discovery_ignores_presses_when_inactive(button, monkeypatch):
+    """Without an active discovery window no device is created."""
+    registry = MagicMock()
+    monkeypatch.setattr(event_module.dr, "async_get", lambda hass: registry)
+
+    await button._handle_event(
+        DaliInputNotificationEvent(bytes([0x04, 0x04, EVENT_BUTTON_PRESSED]))
+    )
+    await button._handle_event(
+        DaliInputNotificationEvent(bytes([0x04, 0x00, EVENT_BUTTON_PRESSED]))
+    )
+    registry.async_get_or_create.assert_not_called()

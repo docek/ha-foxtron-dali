@@ -142,3 +142,64 @@ async def test_registered_services():
     registered = await _run_setup(hass, entry, AsyncMock())
 
     assert sorted(registered) == ["remove_paired_switch", "scan_for_lights"]
+
+
+@pytest.mark.asyncio
+async def test_options_copy_excludes_remediation_flag():
+    """A new bus entry must run its own fade-rate remediation.
+
+    Regression risk: copying fade_rate_restored from an existing entry
+    would skip the one-shot remediation on a newly added gateway whose
+    ballasts may still hold the invalid pre-0.7.3 fade rate.
+    """
+    hass = _make_hass()
+    existing = _make_entry(
+        "1", "1.1.1.1", {"long_press_threshold": 0.3, "fade_rate_restored": True}
+    )
+    new = _make_entry("2", "2.2.2.2", {})
+    hass.config_entries.async_entries.return_value = [existing, new]
+    driver = AsyncMock()
+
+    await _run_setup(hass, new, driver)
+
+    hass.config_entries.async_update_entry.assert_any_call(
+        new, options={"long_press_threshold": 0.3}
+    )
+    driver.set_fade_rate.assert_awaited_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_disconnects_and_removes_services():
+    """Unload pops the driver, disconnects it, and (as the last entry)
+    deregisters the global services."""
+    hass = _make_hass()
+    entry = _make_entry("e1", "1.1.1.1", {})
+    driver = AsyncMock()
+    hass.data = {"foxtron_dali": {"e1": driver}}
+    hass.config_entries.async_forward_entry_unload = AsyncMock(return_value=True)
+    removed = []
+    hass.services.async_remove = lambda domain, name: removed.append(name)
+
+    assert await foxtron_dali.async_unload_entry(hass, entry)
+
+    driver.disconnect.assert_awaited_once()
+    assert "foxtron_dali" not in hass.data
+    assert sorted(removed) == ["remove_paired_switch", "scan_for_lights"]
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_keeps_services_while_other_entries_remain():
+    """Services survive unloading one of several entries."""
+    hass = _make_hass()
+    entry = _make_entry("e1", "1.1.1.1", {})
+    driver, other = AsyncMock(), AsyncMock()
+    hass.data = {"foxtron_dali": {"e1": driver, "e2": other}}
+    hass.config_entries.async_forward_entry_unload = AsyncMock(return_value=True)
+    removed = []
+    hass.services.async_remove = lambda domain, name: removed.append(name)
+
+    assert await foxtron_dali.async_unload_entry(hass, entry)
+
+    driver.disconnect.assert_awaited_once()
+    other.disconnect.assert_not_called()
+    assert removed == []

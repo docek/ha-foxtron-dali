@@ -24,10 +24,11 @@ It communicates with the gateway over its proprietary ASCII/TCP protocol. The pr
 ## Installation
 
 1.  Add this repository to [HACS](https://hacs.xyz/) as a custom repository (type: Integration). HACS installs the latest GitHub Release; updates and version rollbacks are done through HACS ("Redownload" lets you pick a version).
-2.  Alternatively, copy `custom_components/foxtron_dali` into `<config>/custom_components/` manually.
-3.  Restart Home Assistant.
-4.  **Settings → Devices & Services → Add Integration**, search for "Foxtron DALI".
-5.  Enter the gateway IP and port — `23` for the first DALI bus, `24` for the second (DALI2net). Repeat for each bus.
+2.  Requires Home Assistant **2026.7 or newer** (Python 3.14).
+3.  Alternatively, copy `custom_components/foxtron_dali` into `<config>/custom_components/` manually.
+4.  Restart Home Assistant.
+5.  **Settings → Devices & Services → Add Integration**, search for "Foxtron DALI".
+6.  Enter the gateway IP and port — `23` for the first DALI bus, `24` for the second (DALI2net). Repeat for each bus.
 
 ## Lights
 
@@ -39,7 +40,7 @@ While a gateway is unreachable its lights are `unavailable`; they recover automa
 
 ### Fade time
 
-Each light device carries a **Fade time** select with the 16 DALI fade codes (`No fade`, `0.7 s`, … `90.5 s`). The value lives in the ballast NVM — it survives HA restarts and power outages on its own. The entity only *mirrors* it: it reads the ballast on startup and reconnect, writes on an explicit change (verified by readback; a mismatch raises an error and shows the actual value), and never pushes state on restart. Values set by external commissioning tools are preserved (and picked up on the next restart/reconnect).
+Each light device carries a **Fade time** select with the 16 DALI fade codes (`No fade`, `0.7 s`, … `90.5 s`). The value lives in the ballast NVM — it survives HA restarts and power outages on its own. The entity only *mirrors* it: it reads the ballast once at startup, writes on an explicit change (verified by readback; a mismatch raises an error and shows the actual value), and never pushes state on restart. Values set by external commissioning tools are preserved (and picked up on the next restart).
 
 Recommended values: lights dimmed by held buttons ≤ `0.7 s` (a longer fade fights the button repeat interval and feels rubbery); scene/navigation lights `1.4–2.8 s`. Each write is one NVM cycle in the ballast — fine for daily automation profiles, not for per-motion-event changes.
 

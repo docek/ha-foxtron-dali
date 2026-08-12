@@ -3,7 +3,7 @@ from typing import Any, Optional, Callable
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -21,6 +21,11 @@ from .driver import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _dali_to_brightness(level: int) -> int:
+    """Scale a DALI level (0-254) to HA brightness (0-255)."""
+    return round(level * 255 / 254)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -35,10 +40,9 @@ async def async_setup_entry(
     )
 
 
-class DaliLight(LightEntity):
+class DaliLight(helpers.ConnectionAwareEntity, LightEntity):
     """Representation of a DALI light."""
 
-    _attr_should_poll = False
     # The entity takes the name of its per-light device ("DALI Light N")
     _attr_has_entity_name = True
     _attr_name = None
@@ -110,13 +114,6 @@ class DaliLight(LightEntity):
         """Register for bus events when added to Home Assistant."""
         await super().async_added_to_hass()
         self._unsub = self._driver.add_event_listener(self._handle_event)
-        self.async_on_remove(
-            self._driver.add_disconnect_callback(self._handle_driver_disconnect)
-        )
-        self.async_on_remove(
-            self._driver.add_connect_callback(self._handle_driver_connect)
-        )
-        await self.async_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Cleanup when entity is removed from Home Assistant."""
@@ -124,33 +121,21 @@ class DaliLight(LightEntity):
             self._unsub()
         await super().async_will_remove_from_hass()
 
-    def _handle_driver_disconnect(self) -> None:
-        """Mark the light unavailable while the gateway is disconnected."""
-        self._attr_available = False
-        self.async_write_ha_state()
-
-    def _handle_driver_connect(self) -> None:
-        """Restore availability and refresh state after a reconnect."""
-        self._attr_available = True
-        self.async_write_ha_state()
-        # The light may have changed while the gateway was away
-        self.hass.async_create_task(self._async_refresh_state())
-
-    async def _async_refresh_state(self) -> None:
-        """Re-query the actual level and publish the fresh state."""
-        await self.async_update()
-        self.async_write_ha_state()
-
     async def async_update(self) -> None:
-        """Fetch new state data for this light."""
-        level = await self._driver.query_actual_level(self._address)
-        if level is not None:
-            # Scale DALI level (0-254) to HA brightness (0-255)
-            self._apply_level(round(level * 255 / 254))
-        else:
-            self._apply_level(0)
+        """Fetch new state data for this light.
 
-    async def _handle_event(self, event) -> None:
+        A failed query (None: timeout, disconnect race) or MASK (0xFF =
+        "fading", not a level) must not overwrite the last known state —
+        a single noisy-bus timeout used to flip a lit lamp to "off".
+        """
+        level = await self._driver.query_actual_level(self._address)
+        if level is None or level == DALI_MASK:
+            return
+        # Scale DALI level (0-254) to HA brightness (0-255)
+        self._apply_level(_dali_to_brightness(level))
+
+    @callback
+    def _handle_event(self, event) -> None:
         """Handle incoming DALI bus events to update light state.
 
         The LSB of the DALI address byte selects the meaning of the second
@@ -180,7 +165,7 @@ class DaliLight(LightEntity):
         if level is not None:
             if level == DALI_MASK:
                 return  # MASK = "stop fading", not a level
-            self._apply_level(round(level * 255 / 254))
+            self._apply_level(_dali_to_brightness(level))
         elif command == DALI_CMD_OFF:
             self._apply_level(0)
         elif command == DALI_CMD_RECALL_MAX_LEVEL:

@@ -76,7 +76,7 @@ async def test_power_sensor_reads_initial_status(monkeypatch):
     sensor.hass = MagicMock()
     sensor.async_write_ha_state = MagicMock()
 
-    await sensor._async_refresh_status()
+    await sensor.async_update()
     assert sensor.is_on is True
     driver.query_config_item.assert_awaited_once_with(3, timeout=3)
 

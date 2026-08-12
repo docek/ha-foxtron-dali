@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import helpers
 from .const import DOMAIN
 from .driver import (
     FoxtronDaliDriver,
@@ -55,6 +56,7 @@ class _DaliBusSensorBase(BinarySensorEntity):
     """Common plumbing for per-bus diagnostic sensors."""
 
     _attr_should_poll = False
+    _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, entry: ConfigEntry, driver: FoxtronDaliDriver) -> None:
@@ -73,7 +75,7 @@ class DaliBusConnectedSensor(_DaliBusSensorBase):
 
     def __init__(self, entry: ConfigEntry, driver: FoxtronDaliDriver) -> None:
         super().__init__(entry, driver)
-        self._attr_name = f"DALI Bus Connected ({self._bus_label})"
+        self._attr_name = "Connected"
         self._attr_unique_id = f"{self._bus_id}_connected"
 
     @property
@@ -91,7 +93,7 @@ class DaliBusConnectedSensor(_DaliBusSensorBase):
         self.async_write_ha_state()
 
 
-class DaliBusPowerSensor(_DaliBusSensorBase):
+class DaliBusPowerSensor(helpers.ConnectionAwareEntity, _DaliBusSensorBase):
     """Reports the DALI bus power status as seen by the gateway.
 
     Sourced from Type 0x05 gateway events; the initial state is read from
@@ -102,7 +104,7 @@ class DaliBusPowerSensor(_DaliBusSensorBase):
 
     def __init__(self, entry: ConfigEntry, driver: FoxtronDaliDriver) -> None:
         super().__init__(entry, driver)
-        self._attr_name = f"DALI Bus Power ({self._bus_label})"
+        self._attr_name = "Bus power"
         self._attr_unique_id = f"{self._bus_id}_bus_power"
         self._power_ok: bool | None = None
         self._status: str | None = None
@@ -121,31 +123,12 @@ class DaliBusPowerSensor(_DaliBusSensorBase):
         """Subscribe to gateway events and read the initial power status."""
         await super().async_added_to_hass()
         self.async_on_remove(self._driver.add_event_listener(self._handle_event))
-        self.async_on_remove(
-            self._driver.add_disconnect_callback(self._handle_driver_disconnect)
-        )
-        self.async_on_remove(
-            self._driver.add_connect_callback(self._handle_driver_connect)
-        )
-        self.hass.async_create_task(self._async_refresh_status())
 
-    async def _async_refresh_status(self) -> None:
+    async def async_update(self) -> None:
         """Read the current bus power status from the gateway."""
         value = await self._driver.query_config_item(CONFIG_ITEM_BUS_POWER, timeout=3)
         if value is not None and value in POWER_CODES:
             self._apply_power_code(value)
-            self.async_write_ha_state()
-
-    def _handle_driver_disconnect(self) -> None:
-        """Power status is unknown while the gateway is unreachable."""
-        self._attr_available = False
-        self.async_write_ha_state()
-
-    def _handle_driver_connect(self) -> None:
-        """Restore availability and re-read the status after a reconnect."""
-        self._attr_available = True
-        self.async_write_ha_state()
-        self.hass.async_create_task(self._async_refresh_status())
 
     def _handle_event(self, event) -> None:
         """Track Type 0x05 power-related gateway events."""

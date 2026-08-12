@@ -123,3 +123,45 @@ async def test_start_discovery_uses_fixed_duration():
         "foxtron_dali_start_discovery",
         {"duration": DISCOVERY_DURATION_SECONDS},
     )
+
+
+@pytest.mark.asyncio
+async def test_user_step_firmware_query_failure_is_cannot_connect(hass):
+    """A gateway that connects but doesn't answer the firmware query is
+    reported as cannot_connect, not as a created entry."""
+    flow = config_flow.FoxtronDaliConfigFlow()
+    flow.context = {}
+    flow.hass = hass
+    with patch(
+        "custom_components.foxtron_dali.config_flow.FoxtronDaliDriver"
+    ) as mock_driver_cls:
+        driver = AsyncMock()
+        mock_driver_cls.return_value = driver
+        driver.wait_connected.return_value = True
+        driver.query_firmware_version.return_value = None
+
+        result = await flow.async_step_user({CONF_HOST: "1.2.3.4", CONF_PORT: 23})
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"]["base"] == "cannot_connect"
+        driver.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_user_step_connect_timeout_is_cannot_connect(hass):
+    """wait_connected timing out must not create an entry."""
+    flow = config_flow.FoxtronDaliConfigFlow()
+    flow.context = {}
+    flow.hass = hass
+    with patch(
+        "custom_components.foxtron_dali.config_flow.FoxtronDaliDriver"
+    ) as mock_driver_cls:
+        driver = AsyncMock()
+        mock_driver_cls.return_value = driver
+        driver.wait_connected.return_value = False
+
+        result = await flow.async_step_user({CONF_HOST: "1.2.3.4", CONF_PORT: 23})
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"]["base"] == "cannot_connect"
+        driver.disconnect.assert_awaited_once()

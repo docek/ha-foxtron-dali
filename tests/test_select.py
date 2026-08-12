@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -98,20 +99,15 @@ async def test_select_option_mismatch_raises_and_shows_reality():
 
 @pytest.mark.asyncio
 async def test_availability_follows_driver_connection():
-    """Selects go unavailable on disconnect and re-read HW on reconnect."""
+    """Selects go unavailable on disconnect and recover on reconnect."""
     select = _make_select(fade_code=4)
-    refresh_tasks = []
     select.hass = MagicMock()
-    select.hass.async_create_task = lambda coro: refresh_tasks.append(coro)
 
     select._handle_driver_disconnect()
     assert select.available is False
 
     select._handle_driver_connect()
     assert select.available is True
-    assert refresh_tasks, "reconnect must schedule a HW re-read"
-    await refresh_tasks[0]
-    assert select.current_option == OPTION_BY_CODE[4]
 
 
 @pytest.mark.asyncio
@@ -124,7 +120,9 @@ async def test_setup_creates_selects_for_scanned_and_registry(monkeypatch):
     hass = MagicMock()
     hass.data = {DOMAIN: {"e1": driver}}
     tasks = []
-    hass.async_create_task = lambda coro: tasks.append(coro)
+    hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
 
     added = []
     monkeypatch.setattr(
@@ -138,3 +136,25 @@ async def test_setup_creates_selects_for_scanned_and_registry(monkeypatch):
     assert sorted(s._address for s in added) == [1, 2, 5]
     # Reuses the cached scan from the light platform, no forced rescan
     driver.scan_for_devices.assert_awaited_with(refresh=False)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_does_not_reread_fade_time():
+    """Fade time is static NVM data — re-reading 138 selects after every
+    TCP blip doubled the reconnect query storm for no information."""
+    select = _make_select(fade_code=4)
+    tasks = []
+    select.hass = MagicMock()
+    select.hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
+
+    select._handle_driver_disconnect()
+    assert select.available is False
+    select._handle_driver_connect()
+    assert select.available is True
+
+    await asyncio.sleep(0)
+    for t in tasks:
+        t.cancel()
+    assert not tasks, "no fade re-read on reconnect"

@@ -18,6 +18,22 @@
             "already_configured": "This DALI gateway is already configured."
         }
     },
+    "services": {
+        "scan_for_lights": {
+            "name": "Scan for lights",
+            "description": "Rescans all DALI buses and adds newly discovered lights to Home Assistant."
+        },
+        "remove_paired_switch": {
+            "name": "Remove paired switch",
+            "description": "Removes a paired DALI switch device created by this integration.",
+            "fields": {
+                "device_id": {
+                    "name": "Device ID",
+                    "description": "Home Assistant device registry ID of the paired DALI switch to remove."
+                }
+            }
+        }
+    },
     "options": {
         "step": {
             "init": {

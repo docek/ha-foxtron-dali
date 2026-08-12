@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -74,20 +75,20 @@ async def test_handle_dali_command_events_updates_state():
     recall_event = DaliCommandEvent(
         b"", address_byte=3, opcode_byte=DALI_CMD_RECALL_MAX_LEVEL
     )
-    await light._handle_event(recall_event)
+    light._handle_event(recall_event)
     assert light.is_on is True
     assert light.brightness == 255
 
     # Off command
     off_event = DaliCommandEvent(b"", address_byte=3, opcode_byte=DALI_CMD_OFF)
-    await light._handle_event(off_event)
+    light._handle_event(off_event)
     assert light.is_on is False
     assert light.brightness == 0
 
     # Direct level (DAPC) frame — LSB of the address byte is 0
     level_opcode = 100
     level_event = DaliCommandEvent(b"", address_byte=2, opcode_byte=level_opcode)
-    await light._handle_event(level_event)
+    light._handle_event(level_event)
     assert light.is_on is True
     expected_brightness = round(level_opcode * 255 / 254)
     assert light.brightness == expected_brightness
@@ -117,7 +118,7 @@ async def test_turn_on_without_brightness_restores_last_level():
 async def test_broadcast_dapc_sets_brightness():
     """0xFE broadcast DAPC carries a light level for all lights."""
     light = _make_light()
-    await light._handle_event(
+    light._handle_event(
         DaliCommandEvent(b"", address_byte=DALI_BROADCAST_DAPC, opcode_byte=127)
     )
     assert light.is_on is True
@@ -134,7 +135,7 @@ async def test_broadcast_command_is_not_a_level():
     light = _make_light()
     light._is_on = True
     light._brightness = 255
-    await light._handle_event(
+    light._handle_event(
         DaliCommandEvent(
             b"", address_byte=DALI_BROADCAST, opcode_byte=DALI_CMD_SET_FADE_TIME
         )
@@ -152,13 +153,13 @@ async def test_addressed_command_to_own_address():
     light._brightness = 200
 
     off_event = DaliCommandEvent(b"", address_byte=3, opcode_byte=DALI_CMD_OFF)
-    await light._handle_event(off_event)
+    light._handle_event(off_event)
     assert light.is_on is False
 
     max_event = DaliCommandEvent(
         b"", address_byte=3, opcode_byte=DALI_CMD_RECALL_MAX_LEVEL
     )
-    await light._handle_event(max_event)
+    light._handle_event(max_event)
     assert light.is_on is True
     assert light.brightness == 255
 
@@ -171,7 +172,7 @@ async def test_frames_for_other_addresses_ignored():
     light._brightness = 100
 
     for address_byte in (4, 5, 0x81, 0xA3):  # other short addr, group, special
-        await light._handle_event(
+        light._handle_event(
             DaliCommandEvent(b"", address_byte=address_byte, opcode_byte=0)
         )
     assert light.is_on is True
@@ -185,9 +186,7 @@ async def test_dapc_mask_is_ignored():
     light = _make_light(address=1)
     light._is_on = True
     light._brightness = 100
-    await light._handle_event(
-        DaliCommandEvent(b"", address_byte=2, opcode_byte=DALI_MASK)
-    )
+    light._handle_event(DaliCommandEvent(b"", address_byte=2, opcode_byte=DALI_MASK))
     assert light.brightness == 100
     light.async_write_ha_state.assert_not_called()
 
@@ -229,7 +228,9 @@ async def test_rescan_signal_adds_only_new_lights(monkeypatch):
     hass = MagicMock()
     hass.data = {DOMAIN: {"e1": driver}}
     tasks = []
-    hass.async_create_task = lambda coro: tasks.append(coro)
+    hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
 
     added = []
     captured = {}
@@ -272,7 +273,9 @@ async def test_registry_known_lights_survive_scan_miss(monkeypatch):
     hass = MagicMock()
     hass.data = {DOMAIN: {"e1": driver}}
     tasks = []
-    hass.async_create_task = lambda coro: tasks.append(coro)
+    hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
 
     added = []
     monkeypatch.setattr(
@@ -329,3 +332,181 @@ async def test_light_has_own_device():
     assert info["identifiers"] == {(DOMAIN, "1.2.3.4_23_light_5")}
     assert info["via_device"] == (DOMAIN, "bus1")
     assert info["name"] == "DALI Light 5"
+
+
+@pytest.mark.asyncio
+async def test_failed_query_keeps_last_known_state():
+    """A None from query_actual_level must not overwrite known state.
+
+    Regression: a single noisy-bus timeout made a lit lamp report 'off'.
+    """
+    light = _make_light()
+    light._apply_level(200)
+
+    light._driver.query_actual_level = AsyncMock(return_value=None)
+    await light.async_update()
+
+    assert light.is_on is True
+    assert light.brightness == 200
+
+
+@pytest.mark.asyncio
+async def test_mask_query_response_keeps_state():
+    """MASK (0xFF) from a query means 'fading', not a level of 255+."""
+    light = _make_light()
+    light._apply_level(100)
+
+    light._driver.query_actual_level = AsyncMock(return_value=255)
+    await light.async_update()
+
+    assert light.brightness == 100
+
+
+def test_handle_event_is_sync_callback():
+    """The per-frame event handler must be sync — an async handler makes
+    the driver allocate a task per light per bus frame (138 per frame)."""
+    import inspect
+
+    assert not inspect.iscoroutinefunction(DaliLight._handle_event)
+
+
+@pytest.mark.asyncio
+async def test_registry_lights_added_before_scan_completes(monkeypatch):
+    """Known lights must not wait for the (slow) bus scan.
+
+    The scan takes up to ~13 s per bus; registry-known entities are
+    available instantly and only NEW gear depends on the scan.
+    """
+    scan_started = asyncio.Event()
+    scan_release = asyncio.Event()
+
+    async def slow_scan(refresh=False):
+        scan_started.set()
+        await scan_release.wait()
+        return [2]
+
+    driver = MagicMock()
+    driver.scan_for_devices = slow_scan
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
+    entry.async_on_unload = MagicMock()
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"e1": driver}}
+    tasks = []
+    hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
+
+    added = []
+    monkeypatch.setattr(
+        helpers_module, "async_dispatcher_connect", lambda h, s, t: MagicMock()
+    )
+    monkeypatch.setattr(helpers_module, "registry_light_addresses", lambda h, e: {1, 5})
+
+    await light_module.async_setup_entry(hass, entry, lambda e: added.extend(e))
+    # Registry lights present immediately, before the scan resolves
+    assert sorted(light._address for light in added) == [1, 5]
+
+    scan_release.set()
+    await asyncio.gather(*tasks)
+    assert sorted(light._address for light in added) == [1, 2, 5]
+
+
+@pytest.mark.asyncio
+async def test_scan_task_cancelled_on_unload(monkeypatch):
+    """The startup scan task must die with the config entry."""
+    started = asyncio.Event()
+
+    async def hanging_scan(refresh=False):
+        started.set()
+        await asyncio.sleep(60)
+        return []
+
+    driver = MagicMock()
+    driver.scan_for_devices = hanging_scan
+    entry = MagicMock()
+    entry.entry_id = "e1"
+    entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
+    unload_callbacks = []
+    entry.async_on_unload = lambda cb: unload_callbacks.append(cb)
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {"e1": driver}}
+    tasks = []
+    hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
+
+    monkeypatch.setattr(
+        helpers_module, "async_dispatcher_connect", lambda h, s, t: MagicMock()
+    )
+    monkeypatch.setattr(helpers_module, "registry_light_addresses", lambda h, e: set())
+
+    await light_module.async_setup_entry(hass, entry, lambda e: None)
+    await started.wait()
+
+    for cb in unload_callbacks:
+        cb()
+    await asyncio.sleep(0)
+    assert any(t.cancelled() for t in tasks), "unload must cancel the scan task"
+
+
+@pytest.mark.asyncio
+async def test_added_to_hass_does_not_block_on_bus_query():
+    """Entity add must not await a bus round-trip.
+
+    276 serialized queries per bus used to gate platform startup; the
+    initial state read now runs as a tracked background task.
+    """
+    light = _make_light()
+    query_release = asyncio.Event()
+
+    async def slow_query(addr):
+        await query_release.wait()
+        return 100
+
+    light._driver.query_actual_level = slow_query
+    light._driver.add_event_listener = MagicMock(return_value=MagicMock())
+    light._driver.add_disconnect_callback = MagicMock(return_value=MagicMock())
+    light._driver.add_connect_callback = MagicMock(return_value=MagicMock())
+    tasks = []
+    light.hass = MagicMock()
+    light.hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
+
+    await asyncio.wait_for(light.async_added_to_hass(), timeout=0.1)
+    assert light.brightness is None, "state must not depend on the blocked query"
+
+    query_release.set()
+    await asyncio.gather(*tasks)
+    assert light.brightness == round(100 * 255 / 254)
+
+
+@pytest.mark.asyncio
+async def test_pending_refresh_cancelled_on_remove():
+    """A refresh still in flight dies with the entity."""
+    light = _make_light()
+    started = asyncio.Event()
+
+    async def hanging_query(addr):
+        started.set()
+        await asyncio.sleep(60)
+
+    light._driver.query_actual_level = hanging_query
+    light._driver.add_event_listener = MagicMock(return_value=MagicMock())
+    light._driver.add_disconnect_callback = MagicMock(return_value=MagicMock())
+    light._driver.add_connect_callback = MagicMock(return_value=MagicMock())
+    tasks = []
+    light.hass = MagicMock()
+    light.hass.async_create_task = lambda coro: (
+        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
+    )
+
+    await light.async_added_to_hass()
+    await started.wait()
+    await light.async_will_remove_from_hass()
+    await asyncio.sleep(0)
+    assert all(t.cancelled() or t.done() for t in tasks)
