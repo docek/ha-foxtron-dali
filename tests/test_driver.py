@@ -101,6 +101,59 @@ def test_concurrent_fade_config_writes_do_not_interleave():
     asyncio.run(run_test())
 
 
+def test_set_fade_time_per_device_bytes():
+    """Per-device SET FADE TIME addresses the short address (addr*2+1)."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte, send_twice))
+
+        driver_instance.send_dali_command = fake_send
+        await driver_instance.set_fade_time(4, short_address=12)
+
+        assert calls == [(0xA3, 4, False), (12 * 2 + 1, 0x2E, True)]
+
+    asyncio.run(run_test())
+
+
+def test_query_fade_time_parses_lower_nibble():
+    """QUERY FADE TIME/FADE RATE (0xA5): upper nibble rate, lower time."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        seen = []
+
+        async def fake_query(address_byte, opcode_byte, **kwargs):
+            seen.append((address_byte, opcode_byte))
+            return 0x74  # fade rate 7, fade time 4
+
+        driver_instance.send_dali_query = fake_query
+
+        assert await driver_instance.query_fade_time(3) == 4
+        assert seen == [(3 * 2 + 1, 0xA5)]
+
+    asyncio.run(run_test())
+
+
+def test_query_fade_time_no_response_returns_none():
+    """A ballast that doesn't answer yields None, not a bogus code."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+
+        async def fake_query(address_byte, opcode_byte, **kwargs):
+            return None
+
+        driver_instance.send_dali_query = fake_query
+
+        assert await driver_instance.query_fade_time(3) is None
+
+    asyncio.run(run_test())
+
+
 def test_light_broadcast_helpers_removed():
     """broadcast_on/broadcast_off were removed with the broadcast services."""
     assert not hasattr(FoxtronDaliDriver, "broadcast_on")

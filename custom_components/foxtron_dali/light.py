@@ -3,14 +3,11 @@ from typing import Any, Optional, Callable
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIGNAL_RESCAN
+from . import helpers
 from .driver import (
     FoxtronDaliDriver,
     DaliCommandEvent,
@@ -30,55 +27,21 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the DALI lights from a config entry."""
-    driver: FoxtronDaliDriver = hass.data[DOMAIN][entry.entry_id]
-
-    known_addresses: set[int] = set()
-
-    # Addresses already registered from previous runs always get an entity.
-    # A bus scan can occasionally miss a reply on a busy bus; entity
-    # existence must not depend on scan luck — the scan only discovers
-    # NEW gear, availability reflects the connection state.
-    registry_addresses = _registry_addresses(hass, entry)
-
-    async def _scan_and_add(refresh: bool = False) -> None:
-        """Scan the bus and add newly discovered lights."""
-        # The connection is established by async_setup_entry before the
-        # platforms are forwarded; the scan itself runs in the background
-        # so it doesn't block startup.
-        addresses = set(await driver.scan_for_devices(refresh=refresh))
-        addresses |= registry_addresses
-        new = sorted(addr for addr in addresses if addr not in known_addresses)
-        known_addresses.update(new)
-        if new:
-            async_add_entities([DaliLight(driver, addr, entry) for addr in new])
-
-    hass.async_create_task(_scan_and_add())
-
-    async def _rescan() -> None:
-        """Rescan on demand (scan_for_lights service)."""
-        await _scan_and_add(refresh=True)
-
-    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_RESCAN, _rescan))
-
-
-def _registry_addresses(hass: HomeAssistant, entry: ConfigEntry) -> set[int]:
-    """Return DALI addresses of lights already known to the entity registry."""
-    registry = er.async_get(hass)
-    prefix = f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}_"
-    addresses: set[int] = set()
-    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if reg_entry.domain != "light" or not reg_entry.unique_id.startswith(prefix):
-            continue
-        suffix = reg_entry.unique_id.removeprefix(prefix)
-        if suffix.isdigit():
-            addresses.add(int(suffix))
-    return addresses
+    await helpers.async_setup_scanned_entities(
+        hass,
+        entry,
+        async_add_entities,
+        lambda driver, addr: DaliLight(driver, addr, entry),
+    )
 
 
 class DaliLight(LightEntity):
     """Representation of a DALI light."""
 
     _attr_should_poll = False
+    # The entity takes the name of its per-light device ("DALI Light N")
+    _attr_has_entity_name = True
+    _attr_name = None
 
     def __init__(
         self,
@@ -105,22 +68,14 @@ class DaliLight(LightEntity):
             self._last_on_brightness = brightness
 
     @property
-    def name(self) -> str:
-        """Return the name of the light."""
-        return f"DALI Light {self._address}"
-
-    @property
     def unique_id(self) -> str:
         """Return a unique ID for the light."""
-        return f"{self._entry.data[CONF_HOST]}_{self._entry.data[CONF_PORT]}_{self._address}"
+        return f"{helpers.bus_id(self._entry)}_{self._address}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information about this device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            manufacturer="Foxtron",
-        )
+        return helpers.light_device_info(self._entry, self._address)
 
     @property
     def is_on(self) -> bool:

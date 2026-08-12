@@ -69,6 +69,7 @@ DALI_CMD_QUERY_STATUS = 0x90
 DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
+DALI_CMD_QUERY_FADE_TIME_RATE = 0xA5  # Upper nibble: fade rate, lower: fade time
 DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
 
 # --- Special Gateway Event Codes (Type 0x05 / config item 3) ---
@@ -82,6 +83,26 @@ GW_EVENT_BUFFER_FULL = 4
 DALI_BROADCAST = 0xFF  # Broadcast command frame (second byte is a command opcode)
 DALI_BROADCAST_DAPC = 0xFE  # Broadcast DAPC frame (second byte is a light level)
 DALI_MASK = 0xFF  # As a DAPC level: "stop fading", not an actual level
+
+# Approximate transition duration per DALI fade time code (IEC 62386-102)
+FADE_TIME_SECONDS = {
+    0: 0,
+    1: 0.7,
+    2: 1.0,
+    3: 1.4,
+    4: 2.0,
+    5: 2.8,
+    6: 4.0,
+    7: 5.7,
+    8: 8.0,
+    9: 11.3,
+    10: 16.0,
+    11: 22.6,
+    12: 32.0,
+    13: 45.3,
+    14: 64.0,
+    15: 90.5,
+}
 
 # --- Mappings for Readable Logs ---
 # These dictionaries provide human-readable names for logging purposes.
@@ -1030,36 +1051,30 @@ class FoxtronDaliDriver:
     # --- Main Public API for DALI Operations ---
     # -------------------------------------------------------------------
 
-    async def set_fade_time(self, fade_code: int):
-        """Sets the DALI fade time for all devices on the bus.
+    async def set_fade_time(self, fade_code: int, short_address: Optional[int] = None):
+        """Sets the DALI fade time, for one device or the whole bus.
 
         Args:
             fade_code: A DALI fade code (0-15).
+            short_address: Target light (0-63), or None for broadcast.
         """
         if not 0 <= fade_code <= 15:
             self._log.error(f"Invalid fade code: {fade_code}. Must be 0-15.")
             return
 
-        fade_time_map = {
-            0: 0,
-            1: 0.7,
-            2: 1.0,
-            3: 1.4,
-            4: 2.0,
-            5: 2.8,
-            6: 4.0,
-            7: 5.7,
-            8: 8.0,
-            9: 11.3,
-            10: 16.0,
-            11: 22.6,
-            12: 32.0,
-            13: 45.3,
-            14: 64.0,
-            15: 90.5,
-        }
-        approx_time = fade_time_map.get(fade_code, "Unknown")
-        self._log.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
+        if short_address is None:
+            address_byte = DALI_BROADCAST
+        elif 0 <= short_address <= 63:
+            address_byte = short_address * 2 + 1
+        else:
+            self._log.error(f"Invalid short address: {short_address}. Must be 0-63.")
+            return
+
+        approx_time = FADE_TIME_SECONDS.get(fade_code, "Unknown")
+        self._log.debug(
+            f"Setting fade time to code {fade_code} (~{approx_time}s) "
+            f"for {'broadcast' if short_address is None else short_address}"
+        )
 
         # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME.
         # Configuration commands (IEC 62386-102) must be received twice within
@@ -1067,8 +1082,24 @@ class FoxtronDaliDriver:
         async with self._config_lock:
             await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
             await self.send_dali_command(
-                DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=True
+                address_byte, DALI_CMD_SET_FADE_TIME, send_twice=True
             )
+
+    async def query_fade_time(self, short_address: int) -> Optional[int]:
+        """Reads the fade time code stored in a ballast's NVM.
+
+        QUERY FADE TIME/FADE RATE returns one byte: the upper nibble is
+        the fade rate, the lower nibble the fade time.
+
+        Returns:
+            The fade time code (0-15), or None if the device didn't answer.
+        """
+        response = await self.send_dali_query(
+            short_address * 2 + 1, DALI_CMD_QUERY_FADE_TIME_RATE
+        )
+        if response is None:
+            return None
+        return response & 0x0F
 
     async def set_fade_rate(self, fade_code: int):
         """Sets the DALI fade rate for all devices on the bus.

@@ -7,6 +7,7 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import custom_components.foxtron_dali.helpers as helpers_module
 import custom_components.foxtron_dali.light as light_module
 from custom_components.foxtron_dali.light import DaliLight
 from custom_components.foxtron_dali.driver import (
@@ -238,9 +239,9 @@ async def test_rescan_signal_adds_only_new_lights(monkeypatch):
         return MagicMock()
 
     monkeypatch.setattr(
-        light_module, "async_dispatcher_connect", fake_dispatcher_connect
+        helpers_module, "async_dispatcher_connect", fake_dispatcher_connect
     )
-    monkeypatch.setattr(light_module, "_registry_addresses", lambda h, e: set())
+    monkeypatch.setattr(helpers_module, "registry_light_addresses", lambda h, e: set())
 
     await light_module.async_setup_entry(hass, entry, lambda ents: added.extend(ents))
     await tasks[0]  # initial background scan
@@ -275,9 +276,9 @@ async def test_registry_known_lights_survive_scan_miss(monkeypatch):
 
     added = []
     monkeypatch.setattr(
-        light_module, "async_dispatcher_connect", lambda h, s, t: MagicMock()
+        helpers_module, "async_dispatcher_connect", lambda h, s, t: MagicMock()
     )
-    monkeypatch.setattr(light_module, "_registry_addresses", lambda h, e: {1, 5})
+    monkeypatch.setattr(helpers_module, "registry_light_addresses", lambda h, e: {1, 5})
 
     await light_module.async_setup_entry(hass, entry, lambda ents: added.extend(ents))
     await tasks[0]
@@ -304,24 +305,27 @@ def test_registry_addresses_parses_unique_ids(monkeypatch):
         _reg_entry("event", "1.2.3.4_23_button_events"),  # other domain
         _reg_entry("light", "1.2.3.4_23_button_events"),  # non-numeric
     ]
-    monkeypatch.setattr(light_module.er, "async_get", lambda hass: MagicMock())
+    monkeypatch.setattr(helpers_module.er, "async_get", lambda hass: MagicMock())
     monkeypatch.setattr(
-        light_module.er,
+        helpers_module.er,
         "async_entries_for_config_entry",
         lambda registry, entry_id: entries,
     )
 
-    assert light_module._registry_addresses(MagicMock(), entry) == {7, 42}
+    assert helpers_module.registry_light_addresses(MagicMock(), entry) == {7, 42}
 
 
 @pytest.mark.asyncio
-async def test_light_attached_to_bus_device():
-    """Lights share the bus device."""
+async def test_light_has_own_device():
+    """Each light is its own HA device, linked to the bus via via_device."""
     driver = MagicMock()
     entry = MagicMock()
     entry.entry_id = "bus1"
     entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
 
-    light = DaliLight(driver, address=1, entry=entry)
+    light = DaliLight(driver, address=5, entry=entry)
 
-    assert light.device_info["identifiers"] == {(DOMAIN, "bus1")}
+    info = light.device_info
+    assert info["identifiers"] == {(DOMAIN, "1.2.3.4_23_light_5")}
+    assert info["via_device"] == (DOMAIN, "bus1")
+    assert info["name"] == "DALI Light 5"

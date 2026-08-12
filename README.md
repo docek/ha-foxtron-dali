@@ -6,7 +6,8 @@ It communicates with the gateway over its proprietary ASCII/TCP protocol. The pr
 
 ## Features
 
-*   **Light discovery & control** — scans the bus at startup, exposes each control gear as a brightness-capable `light` entity, and adds new lights on demand via the `scan_for_lights` service.
+*   **Light discovery & control** — scans the bus at startup, exposes each control gear as a brightness-capable `light` entity (its own HA device, assignable to an area), and adds new lights on demand via the `scan_for_lights` service.
+*   **Per-light fade time** — each light gets a `Fade time` select (config category) that mirrors the fade time stored in the ballast NVM and writes it only on an explicit change, verified by readback.
 *   **Push-based state updates** — light entities decode 16-bit frames observed on the bus (DAPC levels, OFF, RECALL MAX, broadcast DAPC) and update without polling. Note: this only applies to frames sent by *other* DALI masters; the gateway reports the integration's own commands separately.
 *   **Button events & gestures** — DALI4SW modules send only raw `pressed`/`released` notifications; the integration reconstructs `short_press`, `double_press`, `triple_press` and `long_press_start/repeat/stop` in software with configurable timing.
 *   **Switch pairing & native device triggers** — a 5-minute pairing mode turns physical rocker switches into Home Assistant devices with `upper`/`lower` × press-type device triggers usable directly in the automation UI.
@@ -30,11 +31,17 @@ It communicates with the gateway over its proprietary ASCII/TCP protocol. The pr
 
 ## Lights
 
-Lights are discovered automatically when the integration starts and named `light.dali_light_<address>` (rename them freely — entity IDs and unique IDs are stable). Brightness is supported; fade behaviour follows the configured DALI fade time.
+Lights are discovered automatically when the integration starts and named `light.dali_light_<address>` (rename them freely — entity IDs and unique IDs are stable). Since 0.8.0 every light is its own HA device (linked to the bus device): assign each to a room area for area-based control. After upgrading from an older release the new devices start without an area — assign them once.
 
 If you add new gear to the bus later, call `foxtron_dali.scan_for_lights` — each bus is rescanned and only newly found addresses are added.
 
 While a gateway is unreachable its lights are `unavailable`; they recover automatically (including a fresh level query) when the connection returns.
+
+### Fade time
+
+Each light device carries a **Fade time** select with the 16 DALI fade codes (`No fade`, `0.7 s`, … `90.5 s`). The value lives in the ballast NVM — it survives HA restarts and power outages on its own. The entity only *mirrors* it: it reads the ballast on startup and reconnect, writes on an explicit change (verified by readback; a mismatch raises an error and shows the actual value), and never pushes state on restart. Values set by external commissioning tools are preserved (and picked up on the next restart/reconnect).
+
+Recommended values: lights dimmed by held buttons ≤ `0.7 s` (a longer fade fights the button repeat interval and feels rubbery); scene/navigation lights `1.4–2.8 s`. Each write is one NVM cycle in the ballast — fine for daily automation profiles, not for per-motion-event changes.
 
 ## Buttons
 
@@ -79,10 +86,10 @@ All services are global (they act on every configured bus).
 
 > **Removed in 0.7.3:** `broadcast_on`, `broadcast_off` and `set_fade_time`.
 > Use `light.turn_on`/`light.turn_off` targeting an area or group instead of
-> the broadcasts. Fade time becomes a per-light setting in 0.8.0. Earlier
-> releases wrote the DALI *fade rate* instead of the fade time (wrong opcode);
-> on first start after upgrading, the integration restores the fade rate of
-> all ballasts to the DALI default (7) once.
+> the broadcasts. Fade time is a per-light setting since 0.8.0 (see above).
+> Earlier releases wrote the DALI *fade rate* instead of the fade time (wrong
+> opcode); on first start after upgrading, the integration restores the fade
+> rate of all ballasts to the DALI default (7) once.
 
 ## Options
 

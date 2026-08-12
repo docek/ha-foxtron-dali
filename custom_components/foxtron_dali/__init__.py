@@ -20,7 +20,12 @@ from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.LIGHT, Platform.EVENT, Platform.BINARY_SENSOR]
+PLATFORMS = [
+    Platform.LIGHT,
+    Platform.EVENT,
+    Platform.BINARY_SENSOR,
+    Platform.SELECT,
+]
 
 # Fade rate restored to the DALI default (releases <= 0.7.1 wrote invalid
 # values to all ballasts on every start due to a wrong opcode constant)
