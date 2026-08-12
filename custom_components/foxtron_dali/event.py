@@ -13,6 +13,7 @@ from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_time
 
+from . import helpers
 from .const import (
     DISCOVERY_DURATION_SECONDS,
     DOMAIN,
@@ -281,7 +282,9 @@ class DaliButton(EventEntity):
         self, address: int, upper_instance: int, lower_instance: int
     ) -> str:
         """Build a unique identifier for a paired DALI switch."""
-        return f"dali4sw_{self._bus_id}_{address}_{upper_instance}_{lower_instance}"
+        return helpers.switch_identifier(
+            self._bus_id, address, upper_instance, lower_instance
+        )
 
     def _find_switch_device(
         self,

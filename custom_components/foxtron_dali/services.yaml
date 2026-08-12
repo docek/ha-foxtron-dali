@@ -2,6 +2,48 @@ scan_for_lights:
   name: Scan for lights
   description: Rescans all DALI buses and adds newly discovered lights to Home Assistant.
 
+add_paired_switch:
+  name: Add paired switch
+  description: >-
+    Registers a DALI switch as a paired device without interactive pairing.
+    Creates the same device as button pairing, so native device triggers
+    fire for it.
+  fields:
+    bus_id:
+      name: Bus ID
+      description: The bus identifier (host_port), e.g. 192.168.40.21_23.
+      example: 192.168.40.21_23
+      required: true
+      selector:
+        text:
+    address:
+      name: DALI address
+      description: Short address of the switch module (0-63).
+      example: 5
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 63
+    upper_instance:
+      name: Upper instance
+      description: Instance number of the upper flap.
+      example: 1
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 31
+    lower_instance:
+      name: Lower instance
+      description: Instance number of the lower flap.
+      example: 0
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 31
+
 remove_paired_switch:
   name: Remove paired switch
   description: Removes a paired DALI switch device created by this integration.

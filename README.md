@@ -82,6 +82,7 @@ All services are global (they act on every configured bus).
 | Service | Description |
 |---------|-------------|
 | `foxtron_dali.scan_for_lights` | Rescan all buses and add newly discovered lights. |
+| `foxtron_dali.add_paired_switch` | Register a paired switch device without interactive pairing (`bus_id`, `address`, `upper_instance`, `lower_instance`). |
 | `foxtron_dali.remove_paired_switch` | Remove a paired DALI switch device (`device_id`). |
 
 > **Removed in 0.7.3:** `broadcast_on`, `broadcast_off` and `set_fade_time`.

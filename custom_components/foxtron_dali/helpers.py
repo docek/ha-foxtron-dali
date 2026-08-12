@@ -19,6 +19,13 @@ def bus_id(entry: ConfigEntry) -> str:
     return f"{entry.data[CONF_HOST]}_{entry.data[CONF_PORT]}"
 
 
+def switch_identifier(
+    bus_id_str: str, address: int, upper_instance: int, lower_instance: int
+) -> str:
+    """Unique identifier of a paired DALI switch device."""
+    return f"dali4sw_{bus_id_str}_{address}_{upper_instance}_{lower_instance}"
+
+
 def light_device_info(entry: ConfigEntry, address: int) -> DeviceInfo:
     """Device shared by a light and its config entities (e.g. fade time)."""
     return DeviceInfo(
