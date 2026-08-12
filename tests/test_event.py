@@ -299,6 +299,74 @@ async def test_long_press_sequence(button, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_short_long_press_sequence(button, monkeypatch):
+    events = []
+
+    def capture(event_type, data):
+        events.append(event_type)
+
+    monkeypatch.setattr(button, "_trigger_event", capture)
+    button._long_press_threshold = 0.01
+    button._long_press_repeat = 0.01
+    button._multi_press_window = 0.05
+
+    # Short press followed by a hold within the multi-press window
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await asyncio.sleep(0.03)
+    await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await asyncio.sleep(0.06)
+
+    assert "short_long_press_start" in events
+    assert "short_long_press_repeat" in events
+    assert events[-1] == "short_long_press_stop"
+    # The preceding short press is consumed by the gesture,
+    # and no plain long_press_* events fire
+    assert "short_press" not in events
+    assert not any(e.startswith("long_press") for e in events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("short_presses", "prefix"),
+    [
+        (2, "double_short_long_press"),
+        (3, "triple_short_long_press"),
+    ],
+)
+async def test_multi_short_long_press_sequences(
+    button, monkeypatch, short_presses, prefix
+):
+    events = []
+
+    def capture(event_type, data):
+        events.append(event_type)
+
+    monkeypatch.setattr(button, "_trigger_event", capture)
+    button._long_press_threshold = 0.01
+    button._long_press_repeat = 0.01
+    button._multi_press_window = 0.05
+
+    # N short presses followed by a hold within the multi-press window
+    for _ in range(short_presses):
+        await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+        await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
+    await asyncio.sleep(0.03)
+    await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
+    await asyncio.sleep(0.06)
+
+    assert f"{prefix}_start" in events
+    assert f"{prefix}_repeat" in events
+    assert events[-1] == f"{prefix}_stop"
+    # The preceding short presses are consumed by the gesture
+    assert "double_press" not in events
+    assert "triple_press" not in events
+    assert not any(e.startswith("long_press") for e in events)
+
+
+@pytest.mark.asyncio
 async def test_ignores_other_events(button, monkeypatch):
     events = []
 

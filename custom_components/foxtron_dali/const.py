@@ -18,6 +18,15 @@ PRESS_TYPES = [
     "long_press_start",
     "long_press_repeat",
     "long_press_stop",
+    "short_long_press_start",
+    "short_long_press_repeat",
+    "short_long_press_stop",
+    "double_short_long_press_start",
+    "double_short_long_press_repeat",
+    "double_short_long_press_stop",
+    "triple_short_long_press_start",
+    "triple_short_long_press_repeat",
+    "triple_short_long_press_stop",
 ]
 
 # Switch flaps

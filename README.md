@@ -9,7 +9,7 @@ It communicates with the gateway over its proprietary ASCII/TCP protocol. The pr
 *   **Light discovery & control** — scans the bus at startup, exposes each control gear as a brightness-capable `light` entity (its own HA device, assignable to an area), and adds new lights on demand via the `scan_for_lights` service.
 *   **Per-light fade time** — each light gets a `Fade time` select (config category) that mirrors the fade time stored in the ballast NVM and writes it only on an explicit change, verified by readback.
 *   **Push-based state updates** — light entities decode 16-bit frames observed on the bus (DAPC levels, OFF, RECALL MAX, broadcast DAPC) and update without polling. Note: this only applies to frames sent by *other* DALI masters; the gateway reports the integration's own commands separately.
-*   **Button events & gestures** — DALI4SW modules send only raw `pressed`/`released` notifications; the integration reconstructs `short_press`, `double_press`, `triple_press` and `long_press_start/repeat/stop` in software with configurable timing.
+*   **Button events & gestures** — DALI4SW modules send only raw `pressed`/`released` notifications; the integration reconstructs `short_press`, `double_press`, `triple_press`, `long_press_start/repeat/stop` and combined press-then-hold gestures (`short_long_press`, `double_short_long_press`, `triple_short_long_press`, each with `_start/repeat/stop`) in software with configurable timing.
 *   **Switch pairing & native device triggers** — a 5-minute pairing mode turns physical rocker switches into Home Assistant devices with `upper`/`lower` × press-type device triggers usable directly in the automation UI.
 *   **Robust connection handling** — a supervisor task owns each TCP connection: exponential-backoff reconnect (1 s → 60 s), `ConfigEntryNotReady` when the gateway is offline at startup (HA retries setup on its own), and a keep-alive watchdog that detects silently dead connections (unplugged cable) within ~1 minute. Lights show as `unavailable` while their gateway is unreachable and refresh their state on reconnect.
 *   **Multi-gateway / multi-bus** — one config entry per DALI bus; DALI2net exposes two buses (TCP ports 23 and 24).
@@ -64,7 +64,7 @@ automation:
           entity_id: light.kitchen_light
 ```
 
-`press_type` is one of: `button_pressed`, `button_released`, `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop`. Gesture timing (long-press threshold, repeat interval, multi-press window) is configurable in the integration options.
+`press_type` is one of: `button_pressed`, `button_released`, `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop`, plus the combined press-then-hold gestures `short_long_press_*`, `double_short_long_press_*` and `triple_short_long_press_*` (each with `_start`, `_repeat`, `_stop`). A combined gesture is detected when 1–3 short presses are followed by a hold within the multi-press window; the preceding short presses are consumed by it (no separate `short_press`/`double_press`/`triple_press` fires) and the plain `long_press_*` events are replaced by the combined variant. Gesture timing (long-press threshold, repeat interval, multi-press window) is configurable in the integration options.
 
 > **Removed in 0.10.0:** the legacy `foxtron_dali_button_event` (bus_id/address/instance addressing) is no longer fired — pair the switch and use `foxtron_dali_button_action` or device triggers instead. The `add_paired_switch` service (added in 0.9.0) was removed again: interactive pairing covers real usage.
 
@@ -74,7 +74,7 @@ Physical rocker switches can be registered as Home Assistant devices:
 
 1.  Open the integration options (**CONFIGURE**) → **Start Button Pairing**. Pairing mode runs for 5 minutes (a persistent notification shows the state).
 2.  On the physical switch, press **Upper** and then **Lower** within 5 seconds. The integration pairs the two instances of that DALI address and creates a device.
-3.  The new device offers native **device triggers**: `upper`/`lower` × `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop` — pick them directly in the automation editor. Each trigger also fires `foxtron_dali_button_action` on the event bus with `device_id`, `flap` and `press_type`.
+3.  The new device offers native **device triggers**: `upper`/`lower` × every gesture press type (`short_press`, `double_press`, `triple_press` and the `long_press`/`short_long_press`/`double_short_long_press`/`triple_short_long_press` `_start/repeat/stop` sets) — pick them directly in the automation editor. Each trigger also fires `foxtron_dali_button_action` on the event bus with `device_id`, `flap` and `press_type`.
 4.  To remove a paired switch, call `foxtron_dali.remove_paired_switch` with its device ID.
 
 ## Services

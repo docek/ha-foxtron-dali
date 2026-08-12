@@ -48,6 +48,8 @@ class _ButtonState:
     finalize_task: asyncio.Task | None = None
     long_press_task: asyncio.Task | None = None
     long_press_started: bool = False
+    # "long_press" or "short_long_press" — which gesture the active hold belongs to
+    long_press_prefix: str = "long_press"
     last_event_data: dict = field(default_factory=dict)
 
 
@@ -92,6 +94,15 @@ class DaliButton(helpers.ConnectionAwareEntity, EventEntity):
             "long_press_start",
             "long_press_repeat",
             "long_press_stop",
+            "short_long_press_start",
+            "short_long_press_repeat",
+            "short_long_press_stop",
+            "double_short_long_press_start",
+            "double_short_long_press_repeat",
+            "double_short_long_press_stop",
+            "triple_short_long_press_start",
+            "triple_short_long_press_repeat",
+            "triple_short_long_press_stop",
         ]
         self._unsub: Callable[[], None] | None = None
         self._button_states: dict[str, _ButtonState] = {}
@@ -500,7 +511,7 @@ class DaliButton(helpers.ConnectionAwareEntity, EventEntity):
                 state.long_press_task = None
 
             if state.long_press_started:
-                self._trigger_event("long_press_stop", data)
+                self._trigger_event(f"{state.long_press_prefix}_stop", data)
                 state.long_press_started = False
                 state.press_count = 0
             else:
@@ -514,9 +525,19 @@ class DaliButton(helpers.ConnectionAwareEntity, EventEntity):
         state = self._button_states[key]
         try:
             await asyncio.sleep(self._long_press_threshold)
+            # Short presses within the multi-press window followed by a hold
+            # form a combined gesture; the pending short presses are consumed
+            # by it and never fire on their own.
+            prefix = {
+                1: "short_long_press",
+                2: "double_short_long_press",
+                3: "triple_short_long_press",
+            }.get(state.press_count, "long_press")
+            state.long_press_prefix = prefix
+            state.press_count = 0
             state.long_press_started = True
             data = state.last_event_data
-            self._trigger_event("long_press_start", data)
+            self._trigger_event(f"{prefix}_start", data)
 
             # Safety timeout: maximum duration of a long press.
             # Guards against a RELEASED event never arriving (TCP loss, HW fault).
@@ -524,7 +545,7 @@ class DaliButton(helpers.ConnectionAwareEntity, EventEntity):
             while elapsed < MAX_LONG_PRESS_DURATION:
                 await asyncio.sleep(self._long_press_repeat)
                 elapsed += self._long_press_repeat
-                self._trigger_event("long_press_repeat", data)
+                self._trigger_event(f"{prefix}_repeat", data)
 
             # Safety timeout reached — auto-release
             self._log.warning(
@@ -532,7 +553,7 @@ class DaliButton(helpers.ConnectionAwareEntity, EventEntity):
                 MAX_LONG_PRESS_DURATION,
                 key,
             )
-            self._trigger_event("long_press_stop", data)
+            self._trigger_event(f"{prefix}_stop", data)
             state.long_press_started = False
             state.press_count = 0
         except asyncio.CancelledError:
