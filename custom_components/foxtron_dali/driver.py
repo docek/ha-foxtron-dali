@@ -69,7 +69,7 @@ DALI_CMD_QUERY_STATUS = 0x90
 DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
 DALI_CMD_DTR0 = 0xA3  # Set Data Transfer Register 0
-DALI_CMD_QUERY_FADE_TIME_RATE = 0xA5  # Upper nibble: fade rate, lower: fade time
+DALI_CMD_QUERY_FADE_TIME_RATE = 0xA5  # Upper nibble: fade time, lower: fade rate
 DALI_CMD_QUERY_DEVICE_TYPE = 0xFC
 
 # --- Special Gateway Event Codes (Type 0x05 / config item 3) ---
@@ -625,8 +625,10 @@ class FoxtronDaliDriver:
         # must not interleave between concurrent writers
         self._config_lock = asyncio.Lock()
 
-        # Cache for results of bus scanning to avoid repeated full scans
+        # Cache for results of bus scanning to avoid repeated full scans;
+        # the lock serializes concurrent scans (light + select platforms)
         self._scan_cache: Optional[List[int]] = None
+        self._scan_lock = asyncio.Lock()
 
         # Ring buffer of recent events for the diagnostics download
         self._recent_events: deque[str] = deque(maxlen=25)
@@ -1088,8 +1090,8 @@ class FoxtronDaliDriver:
     async def query_fade_time(self, short_address: int) -> Optional[int]:
         """Reads the fade time code stored in a ballast's NVM.
 
-        QUERY FADE TIME/FADE RATE returns one byte: the upper nibble is
-        the fade rate, the lower nibble the fade time.
+        QUERY FADE TIME/FADE RATE returns one byte: the UPPER nibble is
+        the fade time, the lower nibble the fade rate (IEC 62386-102).
 
         Returns:
             The fade time code (0-15), or None if the device didn't answer.
@@ -1099,7 +1101,7 @@ class FoxtronDaliDriver:
         )
         if response is None:
             return None
-        return response & 0x0F
+        return (response >> 4) & 0x0F
 
     async def set_fade_rate(self, fade_code: int):
         """Sets the DALI fade rate for all devices on the bus.
@@ -1165,26 +1167,32 @@ class FoxtronDaliDriver:
         Returns:
             A list of short addresses (0-63) of all discovered lights.
         """
-        if self._scan_cache is not None and not refresh:
-            return list(self._scan_cache)
+        # Multiple platforms (light, select) scan on startup; serialize so
+        # the second caller waits and is served from the fresh cache
+        # instead of sweeping the bus again.
+        async with self._scan_lock:
+            if self._scan_cache is not None and not refresh:
+                return list(self._scan_cache)
 
-        self._log.info("Starting DALI bus scan for control gear (lights)...")
-        found_devices: List[int] = []
-        # Queries are serialized by the query lock anyway, so a plain
-        # sequential loop is as fast as any batching.
-        for addr in range(64):
-            if await self._scan_address(addr) is not None:
-                self._log.debug(f"Found control gear (light) at short address {addr}!")
-                found_devices.append(addr)
+            self._log.info("Starting DALI bus scan for control gear (lights)...")
+            found_devices: List[int] = []
+            # Queries are serialized by the query lock anyway, so a plain
+            # sequential loop is as fast as any batching.
+            for addr in range(64):
+                if await self._scan_address(addr) is not None:
+                    self._log.debug(
+                        f"Found control gear (light) at short address {addr}!"
+                    )
+                    found_devices.append(addr)
 
-        if not self._connection.is_connected:
-            # A scan interrupted by a disconnect would cache an incomplete
-            # (typically empty) device list; report it but don't cache it.
-            self._log.warning("Bus scan interrupted by disconnect; not caching.")
+            if not self._connection.is_connected:
+                # A scan interrupted by a disconnect would cache an incomplete
+                # (typically empty) device list; report it but don't cache it.
+                self._log.warning("Bus scan interrupted by disconnect; not caching.")
+                return found_devices
+
+            self._scan_cache = found_devices
             return found_devices
-
-        self._scan_cache = found_devices
-        return found_devices
 
     async def query_actual_level(self, short_address: int) -> Optional[int]:
         """Queries the current brightness level of a light.

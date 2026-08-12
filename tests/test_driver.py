@@ -119,8 +119,13 @@ def test_set_fade_time_per_device_bytes():
     asyncio.run(run_test())
 
 
-def test_query_fade_time_parses_lower_nibble():
-    """QUERY FADE TIME/FADE RATE (0xA5): upper nibble rate, lower time."""
+def test_query_fade_time_parses_upper_nibble():
+    """QUERY FADE TIME/FADE RATE (0xA5): UPPER nibble is fade time.
+
+    Regression: the first implementation returned the lower nibble (fade
+    rate), so every select showed the remediated fade rate 7 instead of
+    the actual fade time (verified against IEC 62386-102 / python-dali).
+    """
 
     async def run_test():
         driver_instance = FoxtronDaliDriver("host", 1234)
@@ -128,12 +133,43 @@ def test_query_fade_time_parses_lower_nibble():
 
         async def fake_query(address_byte, opcode_byte, **kwargs):
             seen.append((address_byte, opcode_byte))
-            return 0x74  # fade rate 7, fade time 4
+            return 0x47  # fade time 4 (upper), fade rate 7 (lower)
 
         driver_instance.send_dali_query = fake_query
 
         assert await driver_instance.query_fade_time(3) == 4
         assert seen == [(3 * 2 + 1, 0xA5)]
+
+    asyncio.run(run_test())
+
+
+def test_concurrent_scans_share_one_bus_sweep():
+    """Two platforms scanning at startup must not double the bus traffic.
+
+    Regression: light and select platforms both triggered a full scan
+    concurrently; the duplicate-query guard then dropped probes with
+    'Query for 0191 already in progress' warnings.
+    """
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        # Connected, so the finished sweep is cached for the second caller
+        driver_instance._connection = MagicMock(is_connected=True)
+        seen = []
+
+        async def fake_query(address_byte, opcode_byte, **kwargs):
+            seen.append(address_byte)
+            await asyncio.sleep(0)  # let the second scan start mid-sweep
+            return 0xFF if address_byte == (5 * 2) + 1 else None
+
+        driver_instance.send_dali_query = fake_query
+        results = await asyncio.gather(
+            driver_instance.scan_for_devices(),
+            driver_instance.scan_for_devices(),
+        )
+
+        assert [r for r in results] == [[5], [5]]
+        assert len(seen) == 64, f"expected one sweep, got {len(seen)} queries"
 
     asyncio.run(run_test())
 
