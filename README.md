@@ -45,19 +45,18 @@ Recommended values: lights dimmed by held buttons ≤ `0.7 s` (a longer fade fig
 
 ## Buttons
 
-Every DALI-2 input notification is exposed on a per-bus `DALI Button Events` `event` entity, and simultaneously fired on the HA event bus as `foxtron_dali_button_event`:
+Every DALI-2 input notification is exposed on a per-bus `DALI Button Events` `event` entity. For paired switches (see below) each gesture additionally fires `foxtron_dali_button_action` on the HA event bus with `device_id`, `flap` (`upper`/`lower`) and `press_type` — usable both as native device triggers in the automation UI and directly:
 
 ```yaml
 automation:
   - alias: "Turn on kitchen light with DALI button"
     trigger:
       - platform: event
-        event_type: foxtron_dali_button_event
+        event_type: foxtron_dali_button_action
         event_data:
-          bus_id: "192.168.1.50_23"
-          address: 56
-          instance_number: 1
-          press_type: "short_press"
+          device_id: 1e243e7fe38bdd29cfe66ab18758ea1f
+          flap: upper
+          press_type: short_press
     action:
       - service: light.toggle
         target:
@@ -65,6 +64,8 @@ automation:
 ```
 
 `press_type` is one of: `button_pressed`, `button_released`, `short_press`, `double_press`, `triple_press`, `long_press_start`, `long_press_repeat`, `long_press_stop`. Gesture timing (long-press threshold, repeat interval, multi-press window) is configurable in the integration options.
+
+> **Removed in 0.10.0:** the legacy `foxtron_dali_button_event` (bus_id/address/instance addressing) is no longer fired — pair the switch and use `foxtron_dali_button_action` or device triggers instead. The `add_paired_switch` service (added in 0.9.0) was removed again: interactive pairing covers real usage.
 
 ## Switch Pairing (DALI4SW)
 
@@ -82,7 +83,6 @@ All services are global (they act on every configured bus).
 | Service | Description |
 |---------|-------------|
 | `foxtron_dali.scan_for_lights` | Rescan all buses and add newly discovered lights. |
-| `foxtron_dali.add_paired_switch` | Register a paired switch device without interactive pairing (`bus_id`, `address`, `upper_instance`, `lower_instance`). |
 | `foxtron_dali.remove_paired_switch` | Remove a paired DALI switch device (`device_id`). |
 
 > **Removed in 0.7.3:** `broadcast_on`, `broadcast_off` and `set_fade_time`.

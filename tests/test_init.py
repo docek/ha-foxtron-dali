@@ -134,100 +134,11 @@ async def test_device_removal_allowed_except_bus_device():
 
 @pytest.mark.asyncio
 async def test_registered_services():
-    """scan_for_lights, remove_paired_switch and add_paired_switch exist."""
+    """Only scan_for_lights and remove_paired_switch are registered."""
     hass = _make_hass()
     entry = _make_entry("1", "1.1.1.1", {"fade_rate_restored": True})
     hass.config_entries.async_entries.return_value = [entry]
 
     registered = await _run_setup(hass, entry, AsyncMock())
 
-    assert sorted(registered) == [
-        "add_paired_switch",
-        "remove_paired_switch",
-        "scan_for_lights",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_add_paired_switch_creates_discovery_identical_device():
-    """The service registers a switch device exactly like button pairing.
-
-    Half the physical switches were never paired interactively; the
-    service creates the same registry entry (identifier
-    dali4sw_<bus>_<addr>_<upper>_<lower>) from known configuration so
-    native device-trigger events fire for them too.
-    """
-    hass = _make_hass()
-    entry = _make_entry("e1", "1.1.1.1", {"fade_rate_restored": True})
-    hass.config_entries.async_entries.return_value = [entry]
-
-    handlers = {}
-    with (
-        patch(
-            "custom_components.foxtron_dali.FoxtronDaliDriver", return_value=AsyncMock()
-        ),
-        patch("custom_components.foxtron_dali.dr.async_get") as mock_dr,
-        patch.object(hass.services, "has_service", return_value=False),
-        patch.object(
-            hass.services,
-            "async_register",
-            side_effect=lambda domain, name, handler, **kw: handlers.update(
-                {name: handler}
-            ),
-        ),
-    ):
-        device_registry = MagicMock()
-        mock_dr.return_value = device_registry
-        assert await foxtron_dali.async_setup_entry(hass, entry)
-
-        call = MagicMock()
-        call.data = {
-            "bus_id": "1.1.1.1_23",
-            "address": 5,
-            "upper_instance": 3,
-            "lower_instance": 2,
-        }
-        await handlers["add_paired_switch"](call)
-
-    kwargs = device_registry.async_get_or_create.call_args_list[-1].kwargs
-    assert kwargs["identifiers"] == {("foxtron_dali", "dali4sw_1.1.1.1_23_5_3_2")}
-    assert kwargs["config_entry_id"] == "e1"
-    assert kwargs["model"] == "DALI4sw"
-    assert kwargs["via_device"] == ("foxtron_dali", "e1")
-
-
-@pytest.mark.asyncio
-async def test_add_paired_switch_unknown_bus_raises():
-    """An unknown bus_id must fail loudly, not create an orphan device."""
-    from homeassistant.exceptions import ServiceValidationError
-
-    hass = _make_hass()
-    entry = _make_entry("e1", "1.1.1.1", {"fade_rate_restored": True})
-    hass.config_entries.async_entries.return_value = [entry]
-
-    handlers = {}
-    with (
-        patch(
-            "custom_components.foxtron_dali.FoxtronDaliDriver", return_value=AsyncMock()
-        ),
-        patch("custom_components.foxtron_dali.dr.async_get"),
-        patch.object(hass.services, "has_service", return_value=False),
-        patch.object(
-            hass.services,
-            "async_register",
-            side_effect=lambda domain, name, handler, **kw: handlers.update(
-                {name: handler}
-            ),
-        ),
-    ):
-        assert await foxtron_dali.async_setup_entry(hass, entry)
-
-        call = MagicMock()
-        call.data = {
-            "bus_id": "9.9.9.9_23",
-            "address": 5,
-            "upper_instance": 3,
-            "lower_instance": 2,
-        }
-        with pytest.raises(ServiceValidationError):
-            await handlers["add_paired_switch"](call)
+    assert sorted(registered) == ["remove_paired_switch", "scan_for_lights"]

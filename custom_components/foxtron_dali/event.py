@@ -209,10 +209,6 @@ class DaliButton(EventEntity):
         if getattr(self.hass, "bus", None):
             attrs = dict(event_attributes or {})
 
-            # --- Zpětná kompatibilita (starý event) ---
-            attrs["press_type"] = event_type
-            self.hass.bus.async_fire(f"{DOMAIN}_button_event", attrs)
-
             # --- Nativní Device Triggers ---
             # Zkusíme dohledat zaregistrovaný physical device podle unikátní identity (bus_id_address)
             # A vystavit nativní EVENT_BUTTON_ACTION pro zařízení (tím ho odchytí device_trigger.py)

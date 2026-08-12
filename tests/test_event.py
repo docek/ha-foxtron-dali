@@ -425,19 +425,16 @@ async def test_button_availability_follows_driver(button):
 
 
 @pytest.mark.asyncio
-async def test_fires_hass_event(button):
-    """Ensure events are fired on Home Assistant's event bus."""
+async def test_legacy_bus_event_no_longer_fired(button):
+    """The legacy foxtron_dali_button_event is gone; only the native
+    device-trigger event (EVENT_BUTTON_ACTION) remains.
+
+    The last consumer (AppDaemon scene controller) migrated to the
+    native event on 2026-08-12.
+    """
     button._multi_press_window = 0.01
     await button._handle_event(_make_event(EVENT_BUTTON_PRESSED))
     await button._handle_event(_make_event(EVENT_BUTTON_RELEASED))
     await asyncio.sleep(0.02)
-    assert (
-        "foxtron_dali_button_event",
-        {
-            "bus_id": "test_23",
-            "address": 1,
-            "address_type": "Short",
-            "instance_number": 1,
-            "press_type": "button_pressed",
-        },
-    ) in button.hass.bus.events
+    fired = [name for name, _ in button.hass.bus.events]
+    assert "foxtron_dali_button_event" not in fired

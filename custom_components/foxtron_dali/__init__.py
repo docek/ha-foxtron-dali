@@ -11,7 +11,6 @@ from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from . import helpers
 from .const import (
     CONNECT_TIMEOUT_SECONDS,
     DOMAIN,
@@ -89,59 +88,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # and adds any newly discovered lights.
             async_dispatcher_send(hass, SIGNAL_RESCAN)
 
-        async def handle_add_paired_switch(call: ServiceCall) -> None:
-            """Register a paired DALI switch device from known configuration.
-
-            Creates the same device as interactive button pairing, so
-            native device-trigger events fire without physically pressing
-            the switch during a discovery window.
-            """
-            bus_id = call.data["bus_id"]
-            address = call.data["address"]
-            upper_instance = call.data["upper_instance"]
-            lower_instance = call.data["lower_instance"]
-
-            target_entry = next(
-                (
-                    e
-                    for e in hass.config_entries.async_entries(DOMAIN)
-                    if helpers.bus_id(e) == bus_id
-                ),
-                None,
-            )
-            if target_entry is None:
-                raise ServiceValidationError(
-                    f"No configured DALI bus matches bus_id '{bus_id}'."
-                )
-
-            device_registry = dr.async_get(hass)
-            device = device_registry.async_get_or_create(
-                config_entry_id=target_entry.entry_id,
-                identifiers={
-                    (
-                        DOMAIN,
-                        helpers.switch_identifier(
-                            bus_id, address, upper_instance, lower_instance
-                        ),
-                    )
-                },
-                name=(
-                    f"DALI Vypínač {address} ({bus_id}, "
-                    f"{upper_instance}/{lower_instance})"
-                ),
-                manufacturer="Foxtron",
-                model="DALI4sw",
-                hw_version=f"Addr {address}",
-                sw_version=f"↑ Inst {upper_instance}, ↓ Inst {lower_instance}",
-                via_device=(DOMAIN, target_entry.entry_id),
-            )
-            _LOGGER.info(
-                "Registered paired DALI switch device %s (%s addr %s)",
-                device.id,
-                bus_id,
-                address,
-            )
-
         async def handle_remove_paired_switch(call: ServiceCall) -> None:
             """Remove a paired DALI switch device created by this integration."""
             device_id = call.data["device_id"]
@@ -166,21 +112,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Removed paired DALI switch device %s", device_id)
 
         hass.services.async_register(DOMAIN, "scan_for_lights", handle_scan_for_lights)
-        hass.services.async_register(
-            DOMAIN,
-            "add_paired_switch",
-            handle_add_paired_switch,
-            schema=vol.Schema(
-                {
-                    vol.Required("bus_id"): str,
-                    vol.Required("address"): vol.All(
-                        vol.Coerce(int), vol.Range(min=0, max=63)
-                    ),
-                    vol.Required("upper_instance"): vol.Coerce(int),
-                    vol.Required("lower_instance"): vol.Coerce(int),
-                }
-            ),
-        )
         hass.services.async_register(
             DOMAIN,
             "remove_paired_switch",
@@ -223,7 +154,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.data.pop(DOMAIN)
             for service in (
                 "scan_for_lights",
-                "add_paired_switch",
                 "remove_paired_switch",
             ):
                 hass.services.async_remove(DOMAIN, service)
