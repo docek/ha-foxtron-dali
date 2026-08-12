@@ -212,18 +212,6 @@ async def test_availability_follows_driver_connection():
 
 
 @pytest.mark.asyncio
-async def test_broadcast_service_updates_state_optimistically():
-    """The broadcast dispatcher signal flips is_on/brightness directly."""
-    light = _make_light()
-    light._handle_broadcast_state(True)
-    assert light.is_on is True
-    assert light.brightness == 255
-    light._handle_broadcast_state(False)
-    assert light.is_on is False
-    assert light.brightness == 0
-
-
-@pytest.mark.asyncio
 async def test_rescan_signal_adds_only_new_lights(monkeypatch):
     """Regression: the scan_for_lights service must add newly found lights.
 

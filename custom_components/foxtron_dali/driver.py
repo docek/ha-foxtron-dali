@@ -63,7 +63,8 @@ EVENT_BUTTON_FREE = 0x08
 # --- DALI Standard Command Opcodes (IEC 62386-102) ---
 DALI_CMD_OFF = 0x00
 DALI_CMD_RECALL_MAX_LEVEL = 0x05
-DALI_CMD_SET_FADE_TIME = 0x2F
+DALI_CMD_SET_FADE_TIME = 0x2E
+DALI_CMD_SET_FADE_RATE = 0x2F
 DALI_CMD_QUERY_STATUS = 0x90
 DALI_CMD_QUERY_CONTROL_GEAR_PRESENT = 0x91
 DALI_CMD_QUERY_ACTUAL_LEVEL = 0xA0
@@ -599,6 +600,9 @@ class FoxtronDaliDriver:
         self._pending_config_queries: Dict[int, asyncio.Future] = {}
         self._pending_dali_queries: Dict[bytes, asyncio.Future] = {}
         self._query_lock = asyncio.Lock()
+        # DTR0 is global bus state: the DTR0 -> config command sequence
+        # must not interleave between concurrent writers
+        self._config_lock = asyncio.Lock()
 
         # Cache for results of bus scanning to avoid repeated full scans
         self._scan_cache: Optional[List[int]] = None
@@ -1058,26 +1062,34 @@ class FoxtronDaliDriver:
         self._log.debug(f"Setting fade time to code {fade_code} (~{approx_time}s)")
 
         # Per DALI spec, load fade_code into DTR0 and then issue SET FADE TIME.
-        # SET FADE TIME is a configuration command (IEC 62386-102, opcode
-        # 0x20-0x80 range) and must be received twice within 100 ms — the
-        # gateway handles the double transmission via the send-twice param.
-        await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
-        await asyncio.sleep(0.1)  # Small delay for gateway processing
-        await self.send_dali_command(
-            DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=True
-        )
+        # Configuration commands (IEC 62386-102) must be received twice within
+        # 100 ms — the gateway handles that via the send-twice param.
+        async with self._config_lock:
+            await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
+            await self.send_dali_command(
+                DALI_BROADCAST, DALI_CMD_SET_FADE_TIME, send_twice=True
+            )
 
-    async def broadcast_off(self):
-        """Turns off all lights on the DALI bus via broadcast."""
-        self._log.debug("Broadcasting OFF command to all devices")
-        await self.send_dali_command(DALI_BROADCAST, DALI_CMD_OFF, send_twice=False)
+    async def set_fade_rate(self, fade_code: int):
+        """Sets the DALI fade rate for all devices on the bus.
 
-    async def broadcast_on(self):
-        """Turns on all lights on the DALI bus to their maximum level via broadcast."""
-        self._log.debug("Broadcasting RECALL_MAX_LEVEL command to all devices")
-        await self.send_dali_command(
-            DALI_BROADCAST, DALI_CMD_RECALL_MAX_LEVEL, send_twice=False
-        )
+        Fade rate governs FADE UP/DOWN and step commands (which this
+        integration never sends); used only to restore the DALI default
+        after earlier releases wrote invalid values.
+
+        Args:
+            fade_code: A DALI fade rate code (1-15).
+        """
+        if not 1 <= fade_code <= 15:
+            self._log.error(f"Invalid fade rate code: {fade_code}. Must be 1-15.")
+            return
+
+        self._log.debug(f"Setting fade rate to code {fade_code}")
+        async with self._config_lock:
+            await self.send_dali_command(DALI_CMD_DTR0, fade_code, send_twice=False)
+            await self.send_dali_command(
+                DALI_BROADCAST, DALI_CMD_SET_FADE_RATE, send_twice=True
+            )
 
     async def set_device_level(self, short_address: int, level: int):
         """Sets the brightness level of a single DALI device.

@@ -4,13 +4,13 @@ from typing import Any, Optional, Callable
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIGNAL_BROADCAST_STATE, SIGNAL_RESCAN
+from .const import DOMAIN, SIGNAL_RESCAN
 from .driver import (
     FoxtronDaliDriver,
     DaliCommandEvent,
@@ -161,11 +161,6 @@ class DaliLight(LightEntity):
         self.async_on_remove(
             self._driver.add_connect_callback(self._handle_driver_connect)
         )
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass, SIGNAL_BROADCAST_STATE, self._handle_broadcast_state
-            )
-        )
         await self.async_update()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -173,16 +168,6 @@ class DaliLight(LightEntity):
         if self._unsub:
             self._unsub()
         await super().async_will_remove_from_hass()
-
-    @callback
-    def _handle_broadcast_state(self, is_on: bool) -> None:
-        """Apply optimistic state after a broadcast_on/off service call.
-
-        Our own commands come back from the gateway as confirmations, not
-        as bus events, so broadcasts wouldn't update entity state otherwise.
-        """
-        self._apply_level(255 if is_on else 0)
-        self.async_write_ha_state()
 
     def _handle_driver_disconnect(self) -> None:
         """Mark the light unavailable while the gateway is disconnected."""

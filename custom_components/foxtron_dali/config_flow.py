@@ -104,7 +104,6 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
             menu_options=[
                 "start_discovery",
                 "reload_all",
-                "set_fade_time",
                 "set_event_timing",
             ],
         )
@@ -159,29 +158,6 @@ class FoxtronDaliOptionsFlowHandler(config_entries.OptionsFlow):
                             "multi_press_window", DEFAULT_MULTI_PRESS_WINDOW
                         ),
                     ): vol.Coerce(float),
-                }
-            ),
-        )
-
-    async def async_step_set_fade_time(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ):
-        """Handle the fade time setting step."""
-        if user_input is not None:
-            # Get all current options and update the fade_time
-            new_options = self.config_entry.options.copy()
-            new_options["fade_time"] = user_input["fade_time"]
-            await self._async_update_all_entries(new_options)
-            return self.async_create_entry(title="", data=new_options)
-
-        return self.async_show_form(
-            step_id="set_fade_time",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        "fade_time",
-                        default=self.config_entry.options.get("fade_time", 0),
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=15)),
                 }
             ),
         )

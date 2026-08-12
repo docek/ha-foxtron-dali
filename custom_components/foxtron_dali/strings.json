@@ -25,20 +25,12 @@
                 "menu_options": {
                     "start_discovery": "Start Button Pairing",
                     "reload_all": "Reload All Buses",
-                    "set_event_timing": "Set Event Timing",
-                    "set_fade_time": "Set Fade Time"
+                    "set_event_timing": "Set Event Timing"
                 }
             },
             "start_discovery": {
                 "title": "Start Button Pairing",
                 "description": "Activate discovery mode for 5 minutes to pair physical DALI switches. Press Upper then Lower on the switch within 5 seconds to register it."
-            },
-            "set_fade_time": {
-                "title": "Set Fade Time",
-                "description": "Set the default DALI fade time (0-15) for all lights on this bus.",
-                "data": {
-                    "fade_time": "Fade Time"
-                }
             },
             "set_event_timing": {
                 "title": "Set Event Timing",

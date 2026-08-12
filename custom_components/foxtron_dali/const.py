@@ -9,8 +9,6 @@ EVENT_BUTTON_ACTION = f"{DOMAIN}_button_action"
 # --- Dispatcher Signals ---
 # Ask all light platforms to rescan their bus and add new lights
 SIGNAL_RESCAN = f"{DOMAIN}_rescan"
-# Optimistic state update after a broadcast_on/off service call (bool: is_on)
-SIGNAL_BROADCAST_STATE = f"{DOMAIN}_broadcast_state"
 
 # Types of button presses
 PRESS_TYPES = [

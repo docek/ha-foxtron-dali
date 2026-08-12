@@ -14,23 +14,3 @@ remove_paired_switch:
       selector:
         text:
 
-broadcast_on:
-  name: Broadcast on
-  description: Turns on all lights on all DALI buses to their maximum level.
-
-broadcast_off:
-  name: Broadcast off
-  description: Turns off all lights on all DALI buses.
-
-set_fade_time:
-  name: Set fade time
-  description: Sets the DALI fade time for all devices on all buses.
-  fields:
-    fade_time:
-      name: Fade time
-      description: A DALI fade code (0-15).
-      example: 10
-      selector:
-        number:
-          min: 0
-          max: 15

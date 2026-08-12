@@ -75,10 +75,14 @@ All services are global (they act on every configured bus).
 | Service | Description |
 |---------|-------------|
 | `foxtron_dali.scan_for_lights` | Rescan all buses and add newly discovered lights. |
-| `foxtron_dali.broadcast_on` | All lights to their maximum level (entities update optimistically). |
-| `foxtron_dali.broadcast_off` | All lights off (entities update optimistically). |
-| `foxtron_dali.set_fade_time` | Set the DALI fade time, code 0–15 (sent as a proper send-twice config command). |
 | `foxtron_dali.remove_paired_switch` | Remove a paired DALI switch device (`device_id`). |
+
+> **Removed in 0.7.3:** `broadcast_on`, `broadcast_off` and `set_fade_time`.
+> Use `light.turn_on`/`light.turn_off` targeting an area or group instead of
+> the broadcasts. Fade time becomes a per-light setting in 0.8.0. Earlier
+> releases wrote the DALI *fade rate* instead of the fade time (wrong opcode);
+> on first start after upgrading, the integration restores the fade rate of
+> all ballasts to the DALI default (7) once.
 
 ## Options
 
@@ -86,7 +90,6 @@ Opened via **CONFIGURE** on any entry; options are applied to **all** configured
 
 *   **Start Button Pairing** — see above.
 *   **Reload All Buses** — reload every config entry at once.
-*   **Set Fade Time** — default DALI fade code (0–15) applied at startup.
 *   **Set Event Timing** — long-press threshold, long-press repeat interval and multi-press window (seconds).
 
 ## Reliability Notes

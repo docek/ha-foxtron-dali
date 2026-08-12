@@ -33,8 +33,12 @@ def test_calculate_checksum_and_build_frame():
     assert FoxtronMessage.build_frame(payload) == expected_frame
 
 
-def test_set_fade_time_sends_config_command_twice():
-    """SET FADE TIME is a DALI config command and must be sent twice."""
+def test_set_fade_time_sends_correct_opcode_bytes():
+    """SET FADE TIME must send DTR0 (0xA3) then opcode 0x2E, twice.
+
+    Regression: 0x2F is SET FADE RATE per IEC 62386-102; asserting the
+    literal bytes (not the module constants) catches a wrong constant.
+    """
 
     async def run_test():
         driver_instance = FoxtronDaliDriver("host", 1234)
@@ -46,14 +50,61 @@ def test_set_fade_time_sends_config_command_twice():
         driver_instance.send_dali_command = fake_send
         await driver_instance.set_fade_time(4)
 
-        assert calls[0] == (driver.DALI_CMD_DTR0, 4, False)
-        assert calls[1] == (
-            driver.DALI_BROADCAST,
-            driver.DALI_CMD_SET_FADE_TIME,
-            True,
-        )
+        assert calls == [(0xA3, 4, False), (0xFF, 0x2E, True)]
 
     asyncio.run(run_test())
+
+
+def test_set_fade_rate_sends_correct_opcode_bytes():
+    """SET FADE RATE broadcasts DTR0 (0xA3) then opcode 0x2F, twice."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte, send_twice))
+
+        driver_instance.send_dali_command = fake_send
+        await driver_instance.set_fade_rate(7)
+
+        assert calls == [(0xA3, 7, False), (0xFF, 0x2F, True)]
+
+    asyncio.run(run_test())
+
+
+def test_concurrent_fade_config_writes_do_not_interleave():
+    """DTR0 is global bus state: DTR0 -> SET pairs must stay adjacent
+    even when two coroutines write fade config concurrently."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte))
+            await asyncio.sleep(0)  # give the other coroutine a chance to run
+
+        driver_instance.send_dali_command = fake_send
+        await asyncio.gather(
+            driver_instance.set_fade_time(2),
+            driver_instance.set_fade_time(9),
+        )
+
+        assert len(calls) == 4
+        for i in (0, 2):
+            assert calls[i][0] == 0xA3, f"call {i} must be DTR0, got {calls}"
+            assert calls[i + 1] == (0xFF, 0x2E), f"pair broken: {calls}"
+        # Both fade codes were written
+        assert {calls[0][1], calls[2][1]} == {2, 9}
+
+    asyncio.run(run_test())
+
+
+def test_light_broadcast_helpers_removed():
+    """broadcast_on/broadcast_off were removed with the broadcast services."""
+    assert not hasattr(FoxtronDaliDriver, "broadcast_on")
+    assert not hasattr(FoxtronDaliDriver, "broadcast_off")
 
 
 def test_scan_uses_presence_query_without_retries():

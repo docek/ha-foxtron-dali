@@ -65,6 +65,15 @@ async def test_options_flow_init():
 
     result = await options_flow.async_step_init()
     assert result["type"] == FlowResultType.MENU
+    # Global fade time was removed: fade time is per-light (select entity)
+    assert "set_fade_time" not in result["menu_options"]
+
+
+def test_set_fade_time_step_removed():
+    """The global fade time options step no longer exists."""
+    assert not hasattr(
+        config_flow.FoxtronDaliOptionsFlowHandler, "async_step_set_fade_time"
+    )
 
 
 @pytest.mark.asyncio
@@ -83,14 +92,15 @@ async def test_options_update_applies_globally():
     options_flow.hass = hass
     options_flow.handler = "1"  # entry_id; config_entry resolves through hass
 
-    result = await options_flow.async_step_set_fade_time({"fade_time": 5})
+    timing = {
+        "long_press_threshold": 0.25,
+        "long_press_repeat": 0.2,
+        "multi_press_window": 0.3,
+    }
+    result = await options_flow.async_step_set_event_timing(dict(timing))
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    hass.config_entries.async_update_entry.assert_any_call(
-        entry1, options={"fade_time": 5}
-    )
-    hass.config_entries.async_update_entry.assert_any_call(
-        entry2, options={"fade_time": 5}
-    )
+    hass.config_entries.async_update_entry.assert_any_call(entry1, options=timing)
+    hass.config_entries.async_update_entry.assert_any_call(entry2, options=timing)
     hass.config_entries.async_reload.assert_has_awaits(
         [call("1"), call("2")], any_order=True
     )
