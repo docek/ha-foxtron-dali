@@ -863,23 +863,14 @@ class FoxtronDaliDriver:
             3 + cmd_len_bytes : 3 + cmd_len_bytes + ans_len_bytes
         ]
 
-        # Try to match the response to the echoed command
+        # Only an exact match on the echoed command may resolve a pending
+        # query. Blind "single pending query" attribution created phantom
+        # lights: a probe reply arriving after its timeout was credited to
+        # the next address's probe (phantom at real_address + 1).
         future = self._pending_dali_queries.pop(dali_cmd_sent, None)
         if future:
             if not future.done():
                 future.set_result(dali_answer[0] if dali_answer else None)
-            return None
-
-        # Fallback: if only one query is pending, assume the response is for it
-        if len(self._pending_dali_queries) == 1:
-            cmd_key, future = next(iter(self._pending_dali_queries.items()))
-            self._pending_dali_queries.pop(cmd_key)
-            if not future.done():
-                result = dali_answer[0] if dali_answer else None
-                self._log.debug(
-                    f"Resolving pending query for {cmd_key.hex()} with {result} via fallback."
-                )
-                future.set_result(result)
             return None
 
         if dali_answer:

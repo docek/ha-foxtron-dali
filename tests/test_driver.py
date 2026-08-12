@@ -190,6 +190,53 @@ def test_query_fade_time_no_response_returns_none():
     asyncio.run(run_test())
 
 
+def test_mismatched_response_does_not_resolve_pending_query():
+    """A 0x0D response whose echoed frame differs from the pending query
+    must not resolve it.
+
+    Regression (phantom lights): a scan probe reply arriving after its
+    timeout was blindly attributed to the single pending probe for the
+    NEXT address, creating a phantom light at real_address + 1. The
+    gateway echoes the original DALI frame in every 0x0D response, so
+    only an exact echo match may resolve a pending query.
+    """
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        pending = bytes([0x19, 0x91])  # probe for address 12
+        future = asyncio.get_running_loop().create_future()
+        driver_instance._pending_dali_queries[pending] = future
+
+        # Late reply to the PREVIOUS probe (address 11, echo 0x17 0x91)
+        late_reply = bytes([0x0D, 16, 8, 0x17, 0x91, 0xFF])
+        event = driver_instance._handle_dali_response(late_reply)
+
+        assert not future.done(), "mismatched echo must not resolve the query"
+        assert driver_instance._pending_dali_queries == {pending: future}
+        # The stray answer surfaces as an unsolicited response event
+        assert isinstance(event, driver.DaliQueryResponseEvent)
+
+    asyncio.run(run_test())
+
+
+def test_matching_response_resolves_pending_query():
+    """An exact echo match resolves the pending query with the answer."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        pending = bytes([0x19, 0x91])
+        future = asyncio.get_running_loop().create_future()
+        driver_instance._pending_dali_queries[pending] = future
+
+        reply = bytes([0x0D, 16, 8, 0x19, 0x91, 0xFF])
+        driver_instance._handle_dali_response(reply)
+
+        assert future.done() and future.result() == 0xFF
+        assert driver_instance._pending_dali_queries == {}
+
+    asyncio.run(run_test())
+
+
 def test_light_broadcast_helpers_removed():
     """broadcast_on/broadcast_off were removed with the broadcast services."""
     assert not hasattr(FoxtronDaliDriver, "broadcast_on")
