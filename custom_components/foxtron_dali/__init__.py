@@ -122,6 +122,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device: dr.DeviceEntry
+) -> bool:
+    """Allow deleting per-light/switch devices from the UI, never the bus.
+
+    Needed to clean up devices whose gear no longer exists on the bus
+    (e.g. removed hardware or former phantom entries).
+    """
+    return (DOMAIN, entry.entry_id) not in device.identifiers
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     # Unload platforms

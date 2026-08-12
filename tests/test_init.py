@@ -104,6 +104,35 @@ async def test_setup_skips_fade_rate_restore_when_flagged():
 
 
 @pytest.mark.asyncio
+async def test_device_removal_allowed_except_bus_device():
+    """Users may delete per-light/switch devices, never the bus device.
+
+    Without async_remove_config_entry_device HA offers no delete button
+    at all, so orphaned devices (e.g. former phantoms, gear removed from
+    the bus) could not be cleaned up.
+    """
+    entry = _make_entry("bus1", "1.1.1.1", {})
+
+    bus_device = MagicMock()
+    bus_device.identifiers = {("foxtron_dali", "bus1")}
+    assert (
+        await foxtron_dali.async_remove_config_entry_device(
+            MagicMock(), entry, bus_device
+        )
+        is False
+    )
+
+    light_device = MagicMock()
+    light_device.identifiers = {("foxtron_dali", "1.1.1.1_23_light_5")}
+    assert (
+        await foxtron_dali.async_remove_config_entry_device(
+            MagicMock(), entry, light_device
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
 async def test_broadcast_services_not_registered():
     """Only scan_for_lights and remove_paired_switch remain as services."""
     hass = _make_hass()
