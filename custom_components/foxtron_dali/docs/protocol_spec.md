@@ -64,9 +64,9 @@ The first byte of the decoded binary payload determines the message type.
 
 | Type (Hex) | Message Name | Payload Structure (Binary Bytes) | Description |
 | :--- | :--- | :--- | :--- |
-| `0x0D` | Receive w/ Answer (Diff.) | `[1:Cmd][1:Len][1:AnsLen][1-8:DALI Msg][0-1:DALI Ans]` | **Confirmation for a `Type 0x0B` query.** Contains the DALI response. `AnsLen=0` indicates collision. |
+| `0x0D` | Receive w/ Answer (Diff.) | `[1:Cmd][1:Len][1-8:DALI Msg][1:AnsLen][0-1:DALI Ans]` | **Confirmation for a `Type 0x0B` query.** Contains the DALI response. `AnsLen=0` indicates collision. **`AnsLen` follows the echoed message** — verified against a live DALI2net (fw response `0D 10 03 A0 08 00` = echo `03 A0`, AnsLen 8, answer `00`), 2026-08-12. |
 | `0x0E` | Receive w/o Answer (Diff.) | `[1:Cmd][1:Len][1-8:DALI Msg]` | **Confirmation for a `Type 0x0B` command** that expected no DALI response. |
-| `0x03` | Receive w/ Answer (Spont.) | `[1:Cmd][1:Len][1:AnsLen][1-8:DALI Msg][0-1:DALI Ans]` | Reports an event from another master on the bus that received a DALI reply. |
+| `0x03` | Receive w/ Answer (Spont.) | `[1:Cmd][1:Len][1-8:DALI Msg][1:AnsLen][0-1:DALI Ans]` | Reports an event from another master on the bus that received a DALI reply. Same layout as `0x0D`: `AnsLen` follows the message. |
 | `0x04` | Receive w/o Answer (Spont.) | `[1:Cmd][1:Len][0-8:Data]` | **Primary mechanism for button events.** Reports a DALI frame from another master that did not get a reply. `Len=0` indicates a bus framing error. |
 | `0x05` | Special Event | `[1:Cmd][1:TypeCode]` | Reports gateway/bus status. See codes in Section 4. |
 | `0x07` | Config Response | `[1:Cmd][1:ItemNumber][2:Data]` | The response to a `Type 0x06` query. |

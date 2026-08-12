@@ -208,7 +208,7 @@ def test_mismatched_response_does_not_resolve_pending_query():
         driver_instance._pending_dali_queries[pending] = future
 
         # Late reply to the PREVIOUS probe (address 11, echo 0x17 0x91)
-        late_reply = bytes([0x0D, 16, 8, 0x17, 0x91, 0xFF])
+        late_reply = bytes([0x0D, 16, 0x17, 0x91, 8, 0xFF])
         event = driver_instance._handle_dali_response(late_reply)
 
         assert not future.done(), "mismatched echo must not resolve the query"
@@ -220,19 +220,66 @@ def test_mismatched_response_does_not_resolve_pending_query():
 
 
 def test_matching_response_resolves_pending_query():
-    """An exact echo match resolves the pending query with the answer."""
+    """An exact echo match resolves the pending query with the answer.
+
+    The frames are real gateway captures (probe 2026-08-12): the Type
+    0x0D layout is [Cmd][Len][DALI Msg][AnsLen][Ans] — AnsLen comes
+    AFTER the echoed message, unlike the (wrong) original spec summary.
+    """
 
     async def run_test():
         driver_instance = FoxtronDaliDriver("host", 1234)
-        pending = bytes([0x19, 0x91])
+
+        # Real capture: QUERY ACTUAL LEVEL addr 1 -> level 0
+        pending = bytes([0x03, 0xA0])
+        future = asyncio.get_running_loop().create_future()
+        driver_instance._pending_dali_queries[pending] = future
+        driver_instance._handle_dali_response(
+            bytes([0x0D, 0x10, 0x03, 0xA0, 0x08, 0x00])
+        )
+        assert future.done() and future.result() == 0x00
+
+        # Real capture: QUERY FADE TIME/FADE RATE addr 1 -> 0x07
+        pending = bytes([0x03, 0xA5])
+        future = asyncio.get_running_loop().create_future()
+        driver_instance._pending_dali_queries[pending] = future
+        driver_instance._handle_dali_response(
+            bytes([0x0D, 0x10, 0x03, 0xA5, 0x08, 0x07])
+        )
+        assert future.done() and future.result() == 0x07
+        assert driver_instance._pending_dali_queries == {}
+
+    asyncio.run(run_test())
+
+
+def test_no_answer_response_resolves_with_none():
+    """AnsLen=0 (collision / no reply on the DALI side) resolves to None."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        pending = bytes([0x03, 0xA0])
         future = asyncio.get_running_loop().create_future()
         driver_instance._pending_dali_queries[pending] = future
 
-        reply = bytes([0x0D, 16, 8, 0x19, 0x91, 0xFF])
-        driver_instance._handle_dali_response(reply)
+        driver_instance._handle_dali_response(bytes([0x0D, 0x10, 0x03, 0xA0, 0x00]))
 
-        assert future.done() and future.result() == 0xFF
-        assert driver_instance._pending_dali_queries == {}
+        assert future.done() and future.result() is None
+
+    asyncio.run(run_test())
+
+
+def test_foreign_master_query_event_parses_correct_bytes():
+    """Type 0x03 (event w/ answer) has the same layout: AnsLen after msg."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        # Foreign master queried addr 0 (0x01 0xA0), a ballast answered 0xFF
+        event = driver_instance._handle_dali_event(
+            bytes([0x03, 0x10, 0x01, 0xA0, 0x08, 0xFF])
+        )
+        assert isinstance(event, DaliCommandEvent)
+        assert event.address_byte == 0x01
+        assert event.opcode_byte == 0xA0
 
     asyncio.run(run_test())
 

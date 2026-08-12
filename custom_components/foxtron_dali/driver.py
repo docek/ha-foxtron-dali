@@ -851,13 +851,15 @@ class FoxtronDaliDriver:
 
         This resolves the future associated with a pending DALI query.
         """
-        # The Foxtron protocol includes the command we sent in the response,
-        # which is used to match it to the correct pending future.
+        # The gateway echoes the command we sent in the response, which is
+        # used to match it to the correct pending future. Real layout
+        # (verified against a live gateway): [Cmd][Len][DALI Msg][AnsLen]
+        # [Ans] — AnsLen comes AFTER the echoed message.
         cmd_len_bits = data_payload[1]
         cmd_len_bytes = (cmd_len_bits + 7) // 8
-        dali_cmd_sent = data_payload[3 : 3 + cmd_len_bytes]
+        dali_cmd_sent = data_payload[2 : 2 + cmd_len_bytes]
 
-        ans_len_bits = data_payload[2]
+        ans_len_bits = data_payload[2 + cmd_len_bytes]
         ans_len_bytes = (ans_len_bits + 7) // 8
         dali_answer = data_payload[
             3 + cmd_len_bytes : 3 + cmd_len_bytes + ans_len_bytes
@@ -890,15 +892,15 @@ class FoxtronDaliDriver:
         dali_len_bits = data_payload[1]
         dali_len_bytes = (dali_len_bits + 7) // 8
 
+        # Both types carry the DALI message right after the length; Type
+        # 0x03 appends [AnsLen][Ans] AFTER the message (same layout as
+        # the Type 0x0D response, verified against a live gateway).
+        dali_payload = data_payload[2 : 2 + dali_len_bytes]
+
         if msg_type == MSG_TYPE_DALI_EVENT_WITH_ANSWER:
-            ans_len_bits = data_payload[2]
+            ans_len_bits = data_payload[2 + dali_len_bytes]
             if ans_len_bits == 0:
                 self._log.debug("Type 0x03 event with no answer (collision)")
-            start = 3
-        else:
-            start = 2
-
-        dali_payload = data_payload[start : start + dali_len_bytes]
 
         if dali_len_bits == 16 and len(dali_payload) == 2:
             return DaliCommandEvent(dali_payload, dali_payload[0], dali_payload[1])
