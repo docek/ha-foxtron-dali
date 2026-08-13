@@ -27,6 +27,16 @@ ETB = b"\x17"  # End of Transmission Block
 KEEP_ALIVE_INTERVAL = 20  # Seconds to send keep-alive to prevent TCP timeout
 # Longest valid frame is tens of bytes; anything larger is a broken stream
 MAX_RX_BUFFER = 4096
+# TX flow control: the gateway confirms every transmitted 0x0B frame
+# (0x0E, or 0x0D when a DALI answer followed). A frame normally clears
+# the bus in tens of ms; a whole second means it was dropped.
+TX_CONFIRM_TIMEOUT = 1.0
+TX_SEND_ATTEMPTS = 2
+
+
+class DaliTxError(ConnectionError):
+    """The gateway never confirmed transmitting a frame onto the DALI bus."""
+
 
 # --- Foxtron Message Types (Protocol Command Byte) ---
 # See protocol_spec.md for a detailed description of each message type.
@@ -642,6 +652,12 @@ class FoxtronDaliDriver:
         # DTR0 is global bus state: the DTR0 -> config command sequence
         # must not interleave between concurrent writers
         self._config_lock = asyncio.Lock()
+        # TX flow control: one 0x0B frame in flight at a time, paced by the
+        # gateway's per-frame confirmation (0x0E/0x0D). Lock ordering is
+        # _config_lock -> _tx_lock; nothing takes them in reverse.
+        self._tx_lock = asyncio.Lock()
+        self._pending_tx: Optional[asyncio.Future] = None
+        self._pending_tx_echo: Optional[bytes] = None
 
         # Last fade code written per short address. Survives reconnects
         # (ballast NVM outlives TCP loss and even mains loss); resets only
@@ -769,6 +785,8 @@ class FoxtronDaliDriver:
             if not future.done():
                 future.set_exception(ConnectionError("Gateway disconnected"))
         self._pending_dali_queries.clear()
+        if self._pending_tx is not None and not self._pending_tx.done():
+            self._pending_tx.set_exception(ConnectionError("Gateway disconnected"))
 
         # Notify registered disconnect callbacks (e.g., event.py button state reset)
         for cb in self._disconnect_callbacks:
@@ -882,8 +900,39 @@ class FoxtronDaliDriver:
             await self._event_queue.put(event)
 
     def _handle_confirmation(self, data_payload: bytes) -> None:
-        """Handles a Type 0x0E confirmation message."""
+        """Handles a Type 0x0E confirmation message.
+
+        Layout: [Cmd][Len][DALI Msg] — the gateway echoes the frame it just
+        transmitted on the bus. This is the TX flow-control acknowledgment
+        for commands that drew no DALI answer (answered queries are
+        confirmed via Type 0x0D instead).
+        """
+        if len(data_payload) < 2:
+            self._log.warning("Truncated 0x0E frame: %s", data_payload.hex())
+            return
+        cmd_len_bytes = (data_payload[1] + 7) // 8
+        echoed = data_payload[2 : 2 + cmd_len_bytes]
+        if len(echoed) < cmd_len_bytes:
+            self._log.warning("Truncated 0x0E frame: %s", data_payload.hex())
+            return
         self._log.debug("Received confirmation for our sent command.")
+        self._resolve_tx_confirmation(echoed)
+
+    def _resolve_tx_confirmation(self, echoed: bytes) -> None:
+        """Resolve the in-flight TX wait if the echoed frame matches it."""
+        future = self._pending_tx
+        if future is None or future.done():
+            return
+        if self._pending_tx_echo is not None and echoed != self._pending_tx_echo:
+            # A confirmation for something else (e.g. a late echo of a
+            # retried frame) must not acknowledge the current one.
+            self._log.debug(
+                "TX confirmation echo mismatch: got %s, expected %s",
+                echoed.hex(),
+                self._pending_tx_echo.hex(),
+            )
+            return
+        future.set_result(None)
 
     def _handle_dali_response(self, data_payload: bytes) -> Optional[DaliEvent]:
         """Handles a Type 0x0D DALI response message.
@@ -903,6 +952,8 @@ class FoxtronDaliDriver:
             self._log.warning("Truncated 0x0D frame: %s", data_payload.hex())
             return None
         dali_cmd_sent = data_payload[2 : 2 + cmd_len_bytes]
+        # A 0x0D is also the gateway's TX confirmation for the echoed frame
+        self._resolve_tx_confirmation(dali_cmd_sent)
 
         ans_len_bits = data_payload[2 + cmd_len_bytes]
         ans_len_bytes = (ans_len_bits + 7) // 8
@@ -986,7 +1037,21 @@ class FoxtronDaliDriver:
         return ConfigResponseEvent(data_payload, item_number, value)
 
     async def _send_dali_frame(self, dali_command: bytes, params: int = 0x00):
-        """Constructs and sends a Type 0x0B message to the gateway."""
+        """Sends a Type 0x0B message and waits for the gateway's confirmation.
+
+        The gateway acknowledges every transmitted frame (0x0E, or 0x0D when
+        a DALI answer followed) with an echo of the DALI message. Holding
+        _tx_lock until that echo arrives paces sends to the actual bus speed
+        (~25 ms/frame), so command bursts can no longer overflow the gateway
+        buffer — the failure that silently dropped an OFF frame and left a
+        light on. A missing confirmation means the frame never reached the
+        bus: retry once, then raise DaliTxError so callers don't record
+        state for a command that was never executed.
+
+        Raises:
+            DaliTxError: No confirmation after TX_SEND_ATTEMPTS sends.
+            ConnectionError: The gateway disconnected mid-send.
+        """
         length_in_bits = len(dali_command) * 8
         if not 8 <= length_in_bits <= 64:
             self._log.error(f"Invalid DALI command length: {length_in_bits} bits")
@@ -999,7 +1064,36 @@ class FoxtronDaliDriver:
             + bytes([params])
         )
         frame = FoxtronMessage.build_frame(payload)
-        await self._connection.send_frame(frame)
+        async with self._tx_lock:
+            for attempt in range(1, TX_SEND_ATTEMPTS + 1):
+                self._pending_tx = asyncio.get_running_loop().create_future()
+                self._pending_tx_echo = dali_command
+                try:
+                    await self._connection.send_frame(frame)
+                    await asyncio.wait_for(self._pending_tx, TX_CONFIRM_TIMEOUT)
+                    return
+                except asyncio.TimeoutError:
+                    if attempt < TX_SEND_ATTEMPTS:
+                        self._log.warning(
+                            "No TX confirmation for DALI frame %s "
+                            "(attempt %s/%s); resending",
+                            dali_command.hex(),
+                            attempt,
+                            TX_SEND_ATTEMPTS,
+                        )
+                        continue
+                    self._log.error(
+                        "DALI frame %s was never confirmed by the gateway "
+                        "after %s attempts; giving up",
+                        dali_command.hex(),
+                        TX_SEND_ATTEMPTS,
+                    )
+                    raise DaliTxError(
+                        f"Gateway did not confirm DALI frame {dali_command.hex()}"
+                    ) from None
+                finally:
+                    self._pending_tx = None
+                    self._pending_tx_echo = None
 
     async def send_dali_command(
         self, address_byte: int, opcode_byte: int, send_twice: bool = True

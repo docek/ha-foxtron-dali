@@ -605,3 +605,159 @@ def test_scan_cache_hit_and_refresh():
         assert len(sweeps) == 128
 
     asyncio.run(run_test())
+
+
+# --- TX flow control (v0.13.1) ---
+
+
+def _tx_driver(confirm=None):
+    """Driver with a fake connection; `confirm(frames, dali_command)` decides
+    whether/what to feed back for each sent frame."""
+    driver_instance = FoxtronDaliDriver("host", 1234)
+    frames = []
+
+    async def fake_send_frame(frame):
+        frames.append(frame)
+        if confirm is not None:
+            confirm(driver_instance, frames)
+
+    driver_instance._connection = MagicMock(is_connected=True)
+    driver_instance._connection.send_frame = fake_send_frame
+    return driver_instance, frames
+
+
+def _confirm_with_echo(echo: bytes):
+    """Feed a 0x0E confirmation with the given echoed DALI message."""
+
+    def _confirm(driver_instance, frames):
+        payload = bytes([0x0E, len(echo) * 8]) + echo
+        driver_instance._handle_confirmation(payload)
+
+    return _confirm
+
+
+def test_send_dali_frame_waits_for_confirmation():
+    """A confirmed frame is sent exactly once and the call returns."""
+
+    async def run_test():
+        echo = bytes([0x02, 0x00])  # DAPC 0 to short address 1
+        driver_instance, frames = _tx_driver(confirm=_confirm_with_echo(echo))
+        await driver_instance.send_dali_command(0x02, 0x00, send_twice=False)
+        assert len(frames) == 1
+        assert driver_instance._pending_tx is None
+
+    asyncio.run(run_test())
+
+
+def test_send_dali_frame_retries_once_without_confirmation():
+    """First send unconfirmed -> one resend; confirmation then succeeds."""
+
+    async def run_test():
+        driver.TX_CONFIRM_TIMEOUT = 0.05
+        echo = bytes([0x02, 0x00])
+
+        def confirm_second_attempt(driver_instance, frames):
+            if len(frames) == 2:
+                _confirm_with_echo(echo)(driver_instance, frames)
+
+        driver_instance, frames = _tx_driver(confirm=confirm_second_attempt)
+        await driver_instance.send_dali_command(0x02, 0x00, send_twice=False)
+        assert len(frames) == 2
+
+    asyncio.run(run_test())
+
+
+def test_send_dali_frame_raises_after_all_attempts():
+    """No confirmation on any attempt -> DaliTxError, exactly 2 sends."""
+
+    async def run_test():
+        driver.TX_CONFIRM_TIMEOUT = 0.05
+        driver_instance, frames = _tx_driver(confirm=None)
+        try:
+            await driver_instance.send_dali_command(0x02, 0x00, send_twice=False)
+        except driver.DaliTxError:
+            pass
+        else:
+            raise AssertionError("expected DaliTxError")
+        assert len(frames) == 2
+
+    asyncio.run(run_test())
+
+
+def test_dali_response_0d_confirms_tx():
+    """A 0x0D (query answered) also acknowledges the in-flight frame."""
+
+    async def run_test():
+        echo = bytes([0x03, 0xA0])  # QUERY ACTUAL LEVEL addr 1
+
+        def confirm(driver_instance, frames):
+            driver_instance._handle_dali_response(
+                bytes([0x0D, 16]) + echo + bytes([8, 0x7F])
+            )
+
+        driver_instance, frames = _tx_driver(confirm=confirm)
+        await driver_instance._send_dali_frame(echo, params=0x00)
+        assert len(frames) == 1
+
+    asyncio.run(run_test())
+
+
+def test_echo_mismatch_does_not_confirm_tx():
+    """A confirmation for a different frame must not acknowledge this one."""
+
+    async def run_test():
+        driver.TX_CONFIRM_TIMEOUT = 0.05
+        sent = bytes([0x02, 0x00])
+        wrong = bytes([0x04, 0x00])
+
+        def confirm(driver_instance, frames):
+            if len(frames) == 1:
+                _confirm_with_echo(wrong)(driver_instance, frames)
+            else:
+                _confirm_with_echo(sent)(driver_instance, frames)
+
+        driver_instance, frames = _tx_driver(confirm=confirm)
+        await driver_instance.send_dali_command(0x02, 0x00, send_twice=False)
+        # Mismatched echo forced a retry; matching echo confirmed it
+        assert len(frames) == 2
+
+    asyncio.run(run_test())
+
+
+def test_disconnect_fails_pending_tx():
+    """A disconnect mid-wait raises ConnectionError instead of hanging."""
+
+    async def run_test():
+        driver_instance, frames = _tx_driver(confirm=None)
+
+        async def send_and_expect_error():
+            try:
+                await driver_instance.send_dali_command(0x02, 0x00, send_twice=False)
+            except ConnectionError:
+                return True
+            return False
+
+        task = asyncio.get_running_loop().create_task(send_and_expect_error())
+        await asyncio.sleep(0.01)  # let the send start waiting
+        await driver_instance._clear_pending_futures()
+        assert await asyncio.wait_for(task, timeout=1)
+
+    asyncio.run(run_test())
+
+
+def test_concurrent_sends_are_serialized():
+    """Two concurrent sends both complete; each frame is confirmed in turn."""
+
+    async def run_test():
+        def confirm(driver_instance, frames):
+            echo = driver_instance._pending_tx_echo
+            _confirm_with_echo(echo)(driver_instance, frames)
+
+        driver_instance, frames = _tx_driver(confirm=confirm)
+        await asyncio.gather(
+            driver_instance.send_dali_command(0x02, 0x80, send_twice=False),
+            driver_instance.send_dali_command(0x04, 0x80, send_twice=False),
+        )
+        assert len(frames) == 2
+
+    asyncio.run(run_test())

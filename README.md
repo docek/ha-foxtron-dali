@@ -109,6 +109,7 @@ Opened via **CONFIGURE** on any entry; options are applied to **all** configured
 *   Gateway offline at HA startup (e.g. power-outage recovery where HA boots faster than the gateway): setup raises `ConfigEntryNotReady` and HA keeps retrying until the gateway appears — no manual reload needed.
 *   Connection lost at runtime: the supervisor reconnects with exponential backoff. A silently dead connection (cable pulled — TCP black hole) is detected by the keep-alive watchdog within ~50–70 s.
 *   The DALI2net accepts only **one TCP master per port** — don't run other control software against the same bus port while HA is connected.
+*   TX flow control (v0.13.1): every outgoing DALI frame waits for the gateway's per-frame confirmation (Type 0x0E/0x0D echo) before the next one is sent, pacing bursts to the real bus speed. An unconfirmed frame is resent once; a second miss raises an error instead of silently recording state for a command that never reached the bus.
 
 ## Development
 
