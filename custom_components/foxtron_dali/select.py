@@ -1,10 +1,11 @@
-"""Per-light fade time configuration (select entity).
+"""Per-light fade profile configuration (select entity).
 
-The fade time lives in the ballast's NVM — Home Assistant only mirrors
-it. The entity reads the value from hardware on startup and reconnect,
-and writes only on an explicit user change (verified by readback).
-It never pushes state on its own: no NVM wear on restarts, and values
-set by external commissioning tools are preserved.
+The profile is the *full-range* fade duration used for delta-proportional
+fading: the light entity scales it by the size of each brightness change
+and writes the resulting DALI fade code to the ballast (see
+DaliLight._fade_code_for). The value is an integration-side setting
+persisted by HA restore state — it is NOT a mirror of the ballast NVM
+and never touches the bus itself.
 """
 
 import logging
@@ -14,21 +15,25 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import helpers
-from .driver import FADE_TIME_SECONDS, FoxtronDaliDriver
+from .driver import FoxtronDaliDriver
 
 _LOGGER = logging.getLogger(__name__)
 
-# Human readable label per DALI fade code (0-15)
-OPTION_BY_CODE = {
-    code: ("No fade" if seconds == 0 else f"{seconds} s")
-    for code, seconds in FADE_TIME_SECONDS.items()
+# Full-range fade duration per option label
+FADE_PROFILE_SECONDS = {
+    "No fade": 0.0,
+    "0.7 s": 0.7,
+    "1.4 s": 1.4,
+    "2.0 s": 2.0,
+    "2.8 s": 2.8,
+    "4.0 s": 4.0,
 }
-CODE_BY_OPTION = {option: code for code, option in OPTION_BY_CODE.items()}
+DEFAULT_FADE_PROFILE_OPTION = "2.0 s"
 
 
 async def async_setup_entry(
@@ -36,25 +41,23 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up one fade time select per known DALI light."""
+    """Set up one fade profile select per known DALI light."""
     await helpers.async_setup_scanned_entities(
         hass,
         entry,
         async_add_entities,
-        lambda driver, addr: DaliFadeTimeSelect(driver, addr, entry),
+        lambda driver, addr: DaliFadeProfileSelect(driver, addr, entry),
     )
 
 
-class DaliFadeTimeSelect(helpers.ConnectionAwareEntity, SelectEntity):
-    """Fade time of one DALI light, mirrored from the ballast NVM."""
+class DaliFadeProfileSelect(SelectEntity, RestoreEntity):
+    """Full-range fade duration of one DALI light."""
 
     _attr_has_entity_name = True
-    _attr_name = "Fade time"
+    _attr_name = "Fade profile"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_options = [OPTION_BY_CODE[code] for code in range(16)]
-    # Fade time is static NVM data: read once at add, never on reconnect
-    # (re-reading 138 selects after every TCP blip doubled the query storm)
-    _refresh_on_reconnect = False
+    _attr_options = list(FADE_PROFILE_SECONDS)
+    _attr_should_poll = False
 
     def __init__(
         self, driver: FoxtronDaliDriver, address: int, entry: ConfigEntry
@@ -63,6 +66,9 @@ class DaliFadeTimeSelect(helpers.ConnectionAwareEntity, SelectEntity):
         self._address = address
         self._entry = entry
         self._attr_current_option: Optional[str] = None
+        # Keep the historical "_fade_time" suffix: the registry entry,
+        # entity_id and area assignment of the old select survive the
+        # repurpose to a fade profile
         self._attr_unique_id = f"{helpers.bus_id(entry)}_{address}_fade_time"
 
     @property
@@ -70,23 +76,22 @@ class DaliFadeTimeSelect(helpers.ConnectionAwareEntity, SelectEntity):
         """Attach to the same per-light device as the light entity."""
         return helpers.light_device_info(self._entry, self._address)
 
-    async def async_update(self) -> None:
-        """Mirror the fade time currently stored in the ballast."""
-        code = await self._driver.query_fade_time(self._address)
-        self._attr_current_option = None if code is None else OPTION_BY_CODE.get(code)
+    def _publish(self, option: str) -> None:
+        """Make the profile available to the light entity via the driver."""
+        self._attr_current_option = option
+        self._driver.fade_profile_seconds[self._address] = FADE_PROFILE_SECONDS[option]
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last selected profile, defaulting to 2.0 s."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        option = DEFAULT_FADE_PROFILE_OPTION
+        if last is not None and last.state in FADE_PROFILE_SECONDS:
+            option = last.state
+        self._publish(option)
+        self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
-        """Write the fade time to the ballast NVM and verify by readback."""
-        code = CODE_BY_OPTION[option]
-        await self._driver.set_fade_time(code, short_address=self._address)
-
-        readback = await self._driver.query_fade_time(self._address)
-        self._attr_current_option = (
-            None if readback is None else OPTION_BY_CODE.get(readback)
-        )
+        """Store the new profile (no bus traffic involved)."""
+        self._publish(option)
         self.async_write_ha_state()
-        if readback != code:
-            raise HomeAssistantError(
-                f"DALI light {self._address} reports fade time code {readback} "
-                f"after writing {code}; the ballast may not support it"
-            )

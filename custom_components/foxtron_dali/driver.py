@@ -104,6 +104,14 @@ FADE_TIME_SECONDS = {
     15: 90.5,
 }
 
+
+def nearest_fade_code(seconds: float) -> int:
+    """DALI fade code whose duration is closest to `seconds` (ties -> shorter)."""
+    return min(
+        FADE_TIME_SECONDS, key=lambda code: abs(FADE_TIME_SECONDS[code] - seconds)
+    )
+
+
 # --- Mappings for Readable Logs ---
 # These dictionaries provide human-readable names for logging purposes.
 MESSAGE_TYPE_NAMES = {
@@ -635,6 +643,16 @@ class FoxtronDaliDriver:
         # must not interleave between concurrent writers
         self._config_lock = asyncio.Lock()
 
+        # Last fade code written per short address. Survives reconnects
+        # (ballast NVM outlives TCP loss and even mains loss); resets only
+        # with the driver object, so the first command after an HA restart
+        # writes unconditionally.
+        self._fade_code_cache: Dict[int, int] = {}
+        # Per-light full-range fade duration, published by the fade profile
+        # select and read by the light entities (driver is the per-bus
+        # rendezvous point between platforms)
+        self.fade_profile_seconds: Dict[int, float] = {}
+
         # Cache for results of bus scanning to avoid repeated full scans;
         # the lock serializes concurrent scans (light + select platforms)
         self._scan_cache: Optional[List[int]] = None
@@ -1160,6 +1178,20 @@ class FoxtronDaliDriver:
         if response is None:
             return None
         return (response >> 4) & 0x0F
+
+    async def ensure_fade_time(self, short_address: int, fade_code: int) -> None:
+        """Write SET FADE TIME only if it differs from the last code written.
+
+        Caching minimizes ballast NVM wear; the write itself stays
+        serialized under _config_lock inside set_fade_time (DTR0 is global
+        bus state and parallel send-twice bursts overflow the gateway).
+        The cache is updated only after a successful write, so a failed
+        write is retried on the next command.
+        """
+        if self._fade_code_cache.get(short_address) == fade_code:
+            return
+        await self.set_fade_time(fade_code, short_address=short_address)
+        self._fade_code_cache[short_address] = fade_code
 
     async def set_fade_rate(self, fade_code: int):
         """Sets the DALI fade rate for all devices on the bus.

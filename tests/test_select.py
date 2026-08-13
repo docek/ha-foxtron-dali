@@ -5,15 +5,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import CONF_HOST, CONF_PORT, EntityCategory
-from homeassistant.exceptions import HomeAssistantError
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import custom_components.foxtron_dali.helpers as helpers_module
 import custom_components.foxtron_dali.select as select_module
 from custom_components.foxtron_dali.select import (
-    DaliFadeTimeSelect,
-    OPTION_BY_CODE,
+    DEFAULT_FADE_PROFILE_OPTION,
+    FADE_PROFILE_SECONDS,
+    DaliFadeProfileSelect,
 )
 from custom_components.foxtron_dali.light import DaliLight
 from custom_components.foxtron_dali.const import DOMAIN
@@ -27,17 +27,25 @@ def _make_entry(entry_id: str = "bus1"):
     return entry
 
 
-def _make_select(address: int = 5, fade_code=None) -> DaliFadeTimeSelect:
+def _make_select(address: int = 5, last_state=None) -> DaliFadeProfileSelect:
     driver = MagicMock()
-    driver.set_fade_time = AsyncMock()
-    driver.query_fade_time = AsyncMock(return_value=fade_code)
-    select = DaliFadeTimeSelect(driver, address, _make_entry())
+    driver.fade_profile_seconds = {}
+    select = DaliFadeProfileSelect(driver, address, _make_entry())
     select.async_write_ha_state = MagicMock()
+    if last_state is None:
+        select.async_get_last_state = AsyncMock(return_value=None)
+    else:
+        state = MagicMock()
+        state.state = last_state
+        select.async_get_last_state = AsyncMock(return_value=state)
     return select
 
 
 def test_select_identity_matches_light_device():
-    """The fade select lives on the same per-light device as the light."""
+    """The fade profile select lives on the same device as the light.
+
+    The unique_id keeps the historical "_fade_time" suffix so the
+    registry entry survived the repurpose from fade time to profile."""
     select = _make_select(address=5)
     light = DaliLight(MagicMock(), address=5, entry=_make_entry())
 
@@ -46,73 +54,57 @@ def test_select_identity_matches_light_device():
     assert select.device_info["identifiers"] == light.device_info["identifiers"]
 
 
-def test_options_cover_all_fade_codes():
-    """All 16 DALI fade codes are selectable, labels are human readable."""
+def test_options_and_default():
+    """A small human-scale option set with a sane default."""
     select = _make_select()
-    assert len(select.options) == 16
-    assert select.options == [OPTION_BY_CODE[code] for code in range(16)]
-    # Sanity: labels carry seconds, not raw codes
-    assert OPTION_BY_CODE[1] == "0.7 s"
-    assert OPTION_BY_CODE[15] == "90.5 s"
+    assert select.options == list(FADE_PROFILE_SECONDS)
+    assert DEFAULT_FADE_PROFILE_OPTION in FADE_PROFILE_SECONDS
+    assert FADE_PROFILE_SECONDS["No fade"] == 0.0
+    assert FADE_PROFILE_SECONDS[DEFAULT_FADE_PROFILE_OPTION] == 2.0
 
 
 @pytest.mark.asyncio
-async def test_update_reads_fade_time_from_hardware():
-    """The ballast NVM is the source of truth; HA only mirrors it."""
-    select = _make_select(address=5, fade_code=4)
+async def test_restore_adopts_last_valid_option():
+    """A previously selected profile is restored and published."""
+    select = _make_select(address=5, last_state="0.7 s")
 
-    await select.async_update()
+    await select.async_added_to_hass()
 
-    select._driver.query_fade_time.assert_awaited_once_with(5)
-    assert select.current_option == OPTION_BY_CODE[4]
-
-
-@pytest.mark.asyncio
-async def test_update_without_response_keeps_unknown():
-    """No reply from the ballast leaves the option unknown."""
-    select = _make_select(fade_code=None)
-    await select.async_update()
-    assert select.current_option is None
+    assert select.current_option == "0.7 s"
+    assert select._driver.fade_profile_seconds[5] == 0.7
 
 
 @pytest.mark.asyncio
-async def test_select_option_writes_and_verifies():
-    """Selecting an option writes to the ballast and verifies by readback."""
-    select = _make_select(address=5, fade_code=4)
+async def test_restore_without_state_uses_default():
+    """First boot (or invalid restore) falls back to the 2.0 s default.
 
-    await select.async_select_option(OPTION_BY_CODE[4])
+    The pre-0.13 select stored fade codes as e.g. "2.0 s" too, but any
+    stale label outside the new option set must also map to the default."""
+    for last_state in (None, "90.5 s", "unavailable"):
+        select = _make_select(address=5, last_state=last_state)
 
-    select._driver.set_fade_time.assert_awaited_once_with(4, short_address=5)
-    assert select.current_option == OPTION_BY_CODE[4]
+        await select.async_added_to_hass()
 
-
-@pytest.mark.asyncio
-async def test_select_option_mismatch_raises_and_shows_reality():
-    """A readback mismatch raises and the entity shows the actual value."""
-    select = _make_select(address=5, fade_code=2)  # ballast reports 2
-
-    with pytest.raises(HomeAssistantError):
-        await select.async_select_option(OPTION_BY_CODE[4])
-
-    assert select.current_option == OPTION_BY_CODE[2]
+        assert select.current_option == DEFAULT_FADE_PROFILE_OPTION
+        assert select._driver.fade_profile_seconds[5] == 2.0
 
 
 @pytest.mark.asyncio
-async def test_availability_follows_driver_connection():
-    """Selects go unavailable on disconnect and recover on reconnect."""
-    select = _make_select(fade_code=4)
-    select.hass = MagicMock()
+async def test_select_option_publishes_without_bus_traffic():
+    """The profile is an integration-side setting: no NVM write, no query."""
+    select = _make_select(address=5)
 
-    select._handle_driver_disconnect()
-    assert select.available is False
+    await select.async_select_option("2.8 s")
 
-    select._handle_driver_connect()
-    assert select.available is True
+    assert select.current_option == "2.8 s"
+    assert select._driver.fade_profile_seconds[5] == 2.8
+    select._driver.set_fade_time.assert_not_called()
+    select._driver.query_fade_time.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_setup_creates_selects_for_scanned_and_registry(monkeypatch):
-    """One fade select per known light address (scan + registry seed)."""
+    """One fade profile select per known light address (scan + registry)."""
     driver = MagicMock()
     driver.scan_for_devices = AsyncMock(return_value=[1, 2])
     entry = _make_entry("e1")
@@ -136,25 +128,3 @@ async def test_setup_creates_selects_for_scanned_and_registry(monkeypatch):
     assert sorted(s._address for s in added) == [1, 2, 5]
     # Reuses the cached scan from the light platform, no forced rescan
     driver.scan_for_devices.assert_awaited_with(refresh=False)
-
-
-@pytest.mark.asyncio
-async def test_reconnect_does_not_reread_fade_time():
-    """Fade time is static NVM data — re-reading 138 selects after every
-    TCP blip doubled the reconnect query storm for no information."""
-    select = _make_select(fade_code=4)
-    tasks = []
-    select.hass = MagicMock()
-    select.hass.async_create_task = lambda coro: (
-        tasks.append(asyncio.ensure_future(coro)) or tasks[-1]
-    )
-
-    select._handle_driver_disconnect()
-    assert select.available is False
-    select._handle_driver_connect()
-    assert select.available is True
-
-    await asyncio.sleep(0)
-    for t in tasks:
-        t.cancel()
-    assert not tasks, "no fade re-read on reconnect"

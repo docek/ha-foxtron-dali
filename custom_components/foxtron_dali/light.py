@@ -1,13 +1,20 @@
 import logging
 from typing import Any, Optional, Callable
 
-from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
+from homeassistant.components.light import (
+    ATTR_BRIGHTNESS,
+    ATTR_TRANSITION,
+    ColorMode,
+    LightEntity,
+    LightEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import helpers
+from .const import DEFAULT_FADE_PROFILE_SECONDS
 from .driver import (
     FoxtronDaliDriver,
     DaliCommandEvent,
@@ -16,6 +23,7 @@ from .driver import (
     DALI_CMD_OFF,
     DALI_CMD_RECALL_MAX_LEVEL,
     DALI_MASK,
+    nearest_fade_code,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +54,7 @@ class DaliLight(helpers.ConnectionAwareEntity, LightEntity):
     # The entity takes the name of its per-light device ("DALI Light N")
     _attr_has_entity_name = True
     _attr_name = None
+    _attr_supported_features = LightEntityFeature.TRANSITION
 
     def __init__(
         self,
@@ -91,6 +100,29 @@ class DaliLight(helpers.ConnectionAwareEntity, LightEntity):
         """Return the brightness of the light."""
         return self._brightness
 
+    def _fade_code_for(self, target_brightness: int, transition: float | None) -> int:
+        """Fade code for a change to target_brightness (HA 0-255 scale).
+
+        Emulates DALI fade-rate behavior: DAPC only honors the ballast's
+        fade *time*, so the duration is computed here — proportional to
+        the level delta, scaled from the per-light full-range profile.
+        An explicit `transition:` overrides the computation. Unknown
+        current level -> conservative full-range fade.
+        """
+        if transition is not None:
+            return nearest_fade_code(transition)
+        profile = self._driver.fade_profile_seconds.get(
+            self._address, DEFAULT_FADE_PROFILE_SECONDS
+        )
+        if profile <= 0:
+            return 0  # "No fade" profile
+        delta = (
+            255
+            if self._brightness is None
+            else abs(target_brightness - self._brightness)
+        )
+        return nearest_fade_code(profile * delta / 255)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on."""
         brightness = kwargs.get(ATTR_BRIGHTNESS)
@@ -100,12 +132,16 @@ class DaliLight(helpers.ConnectionAwareEntity, LightEntity):
         # Scale HA brightness (0-255) to DALI level (0-254)
         dali_level = round(brightness * 254 / 255)
 
+        fade_code = self._fade_code_for(brightness, kwargs.get(ATTR_TRANSITION))
+        await self._driver.ensure_fade_time(self._address, fade_code)
         await self._driver.set_device_level(self._address, dali_level)
         self._apply_level(brightness)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
+        fade_code = self._fade_code_for(0, kwargs.get(ATTR_TRANSITION))
+        await self._driver.ensure_fade_time(self._address, fade_code)
         await self._driver.set_device_level(self._address, 0)
         self._apply_level(0)
         self.async_write_ha_state()

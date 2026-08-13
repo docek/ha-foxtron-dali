@@ -119,6 +119,79 @@ def test_set_fade_time_per_device_bytes():
     asyncio.run(run_test())
 
 
+def test_nearest_fade_code_maps_durations():
+    """nearest_fade_code picks the code with the closest duration."""
+    # Exact durations map to their own code
+    for code, seconds in driver.FADE_TIME_SECONDS.items():
+        assert driver.nearest_fade_code(seconds) == code
+    assert driver.nearest_fade_code(0) == 0
+    # Midpoints resolve to the closer neighbour
+    assert driver.nearest_fade_code(0.34) == 0  # closer to 0 than 0.7
+    assert driver.nearest_fade_code(0.36) == 1  # closer to 0.7 than 0
+    assert driver.nearest_fade_code(2.3) == 4  # closer to 2.0 than 2.8
+    # Anything beyond the table clamps to the slowest code
+    assert driver.nearest_fade_code(600.0) == 15
+
+
+def test_ensure_fade_time_writes_only_on_change():
+    """ensure_fade_time caches the last written code per address."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte))
+
+        driver_instance.send_dali_command = fake_send
+
+        await driver_instance.ensure_fade_time(5, 4)
+        assert calls == [(0xA3, 4), (5 * 2 + 1, 0x2E)]
+
+        # Same code again: cache hit, no bus traffic
+        calls.clear()
+        await driver_instance.ensure_fade_time(5, 4)
+        assert calls == []
+
+        # Different code: write again
+        await driver_instance.ensure_fade_time(5, 0)
+        assert calls == [(0xA3, 0), (5 * 2 + 1, 0x2E)]
+
+        # The cache is per address: another light writes independently
+        calls.clear()
+        await driver_instance.ensure_fade_time(6, 0)
+        assert calls == [(0xA3, 0), (6 * 2 + 1, 0x2E)]
+
+    asyncio.run(run_test())
+
+
+def test_ensure_fade_time_retries_after_failed_write():
+    """A failed write leaves the cache unset so the next command retries."""
+
+    async def run_test():
+        driver_instance = FoxtronDaliDriver("host", 1234)
+
+        async def failing_send(address_byte, opcode_byte, send_twice=True):
+            raise ConnectionError("gateway lost")
+
+        driver_instance.send_dali_command = failing_send
+        try:
+            await driver_instance.ensure_fade_time(5, 4)
+        except ConnectionError:
+            pass
+
+        calls = []
+
+        async def fake_send(address_byte, opcode_byte, send_twice=True):
+            calls.append((address_byte, opcode_byte))
+
+        driver_instance.send_dali_command = fake_send
+        await driver_instance.ensure_fade_time(5, 4)
+        assert calls == [(0xA3, 4), (5 * 2 + 1, 0x2E)], "failed write must retry"
+
+    asyncio.run(run_test())
+
+
 def test_query_fade_time_parses_upper_nibble():
     """QUERY FADE TIME/FADE RATE (0xA5): UPPER nibble is fade time.
 

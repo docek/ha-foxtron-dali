@@ -27,6 +27,8 @@ def _make_light(address: int = 1) -> DaliLight:
     """Build a DaliLight with a mocked driver and state writer."""
     driver = MagicMock()
     driver.set_device_level = AsyncMock()
+    driver.ensure_fade_time = AsyncMock()
+    driver.fade_profile_seconds = {}
     driver.query_actual_level = AsyncMock(return_value=None)
     entry = MagicMock()
     entry.entry_id = "entry1"
@@ -41,6 +43,8 @@ async def test_async_turn_on_off_sends_dali_levels_and_updates_state():
     """Ensure turn_on/turn_off send correct levels and update state."""
     driver = MagicMock()
     driver.set_device_level = AsyncMock()
+    driver.ensure_fade_time = AsyncMock()
+    driver.fade_profile_seconds = {}
     entry = MagicMock()
     entry.entry_id = "entry1"
     entry.data = {CONF_HOST: "1.2.3.4", CONF_PORT: 23}
@@ -58,6 +62,89 @@ async def test_async_turn_on_off_sends_dali_levels_and_updates_state():
     driver.set_device_level.assert_awaited_once_with(1, 0)
     assert light.is_on is False
     assert light.brightness == 0
+
+
+@pytest.mark.asyncio
+async def test_fade_code_proportional_to_delta():
+    """The fade duration scales with the brightness delta (fade-rate feel).
+
+    Full-range profile 2.0 s: 255->128 is half the range, so ~1.0 s
+    (code 2); a small step is near-instant (code 0)."""
+    light = _make_light(address=1)
+    light._apply_level(255)
+
+    await light.async_turn_on(brightness=128)
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 2)
+
+    light._driver.ensure_fade_time.reset_mock()
+    await light.async_turn_on(brightness=118)  # delta 10 -> ~0.08 s -> code 0
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 0)
+
+
+@pytest.mark.asyncio
+async def test_fade_time_written_before_dapc():
+    """The fade code must reach the ballast before the level command."""
+    light = _make_light(address=1)
+    light._apply_level(255)
+    parent = MagicMock()
+    parent.attach_mock(light._driver.ensure_fade_time, "ensure_fade_time")
+    parent.attach_mock(light._driver.set_device_level, "set_device_level")
+
+    await light.async_turn_off()
+
+    names = [c[0] for c in parent.mock_calls]
+    assert names == ["ensure_fade_time", "set_device_level"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_brightness_falls_back_to_full_range_fade():
+    """Unknown current level (after startup) -> conservative full fade."""
+    light = _make_light(address=1)
+    assert light.brightness is None
+
+    await light.async_turn_off()
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 4)  # 2.0 s
+
+
+@pytest.mark.asyncio
+async def test_turn_off_fade_scales_with_current_level():
+    """Turning off a dim light fades briefly, a bright one slowly."""
+    light = _make_light(address=1)
+    light._apply_level(100)  # delta 100 -> ~0.78 s -> code 1 (0.7 s)
+
+    await light.async_turn_off()
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 1)
+
+
+@pytest.mark.asyncio
+async def test_transition_overrides_computed_fade():
+    """An explicit transition maps to the nearest DALI fade code."""
+    light = _make_light(address=1)
+    light._apply_level(255)
+
+    await light.async_turn_on(brightness=254, transition=5.7)
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 7)
+
+    light._driver.ensure_fade_time.reset_mock()
+    await light.async_turn_off(transition=5.7)
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 7)
+
+
+@pytest.mark.asyncio
+async def test_no_fade_profile_always_code_zero():
+    """The 'No fade' profile (0.0 s) disables fading entirely."""
+    light = _make_light(address=1)
+    light._driver.fade_profile_seconds[1] = 0.0
+    light._apply_level(255)
+
+    await light.async_turn_off()
+    light._driver.ensure_fade_time.assert_awaited_once_with(1, 0)
+
+
+def test_light_supports_transition():
+    """The entity advertises transition support to HA."""
+    light = _make_light()
+    assert light.supported_features & light_module.LightEntityFeature.TRANSITION
 
 
 @pytest.mark.asyncio

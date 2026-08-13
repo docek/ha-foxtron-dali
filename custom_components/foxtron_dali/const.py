@@ -6,6 +6,10 @@ DOMAIN = "foxtron_dali"
 # --- Event and Trigger Constants ---
 EVENT_BUTTON_ACTION = f"{DOMAIN}_button_action"
 
+# Full-range fade duration (seconds) used for delta-proportional fading
+# when a light has no fade profile selected yet
+DEFAULT_FADE_PROFILE_SECONDS = 2.0
+
 # --- Dispatcher Signals ---
 # Ask all light platforms to rescan their bus and add new lights
 SIGNAL_RESCAN = f"{DOMAIN}_rescan"
